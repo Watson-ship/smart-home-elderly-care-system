@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 本地配置 (含数据库密码, 禁止上传)
+config/settings_local.py
+
+# 模型权重文件 (太大)
+ai_training/weights/*.pt
+ai_training/weights/*.pth
+ai_training/weights/*.onnx
+
+# 静态资源 (截图等, 运行时生成)
+static/screenshots/
+
+# 旧 Flask 目录 (已迁移到根目录结构)
+app/
+
+# IDE
+.idea/
+.vscode/
