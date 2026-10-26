@@ -15,9 +15,6 @@ ai_training/weights/*.onnx
 # 静态资源 (截图等, 运行时生成)
 static/screenshots/
 
-# 旧 Flask 目录 (已迁移到根目录结构)
-app/
-
 # IDE
 .idea/
 .vscode/
