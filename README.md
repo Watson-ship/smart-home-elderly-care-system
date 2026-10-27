@@ -212,7 +212,7 @@ INFO:     Uvicorn running on http://127.0.0.1:5000
 
 ## 跌倒检测模块（fallwatch）
 
-原 `fall-watch` 项目已融入本仓库，**保留其原始包布局**，直接平铺在项目根目录；原有后端目录没有移动、改名或删除。新增内容如下：
+原 `fall-watch` 项目已融入本仓库，**保留其原始包布局**，直接平铺在项目根目录；原有后端目录没有移动、改名或删除。更完整的原始模块说明见 [docs/fallwatch/README.md](docs/fallwatch/README.md)。新增内容如下：
 
 ```
 smart-home-elderly-care-system/
