@@ -1,5 +1,4 @@
 """应用入口: 创建 FastAPI 实例, 初始化数据库, 注册所有路由。
-
 启动方式:
   python main.py               # 直接运行(带 reload 自动重启)
   uvicorn main:app --reload    # 同上, 命令行方式
@@ -49,12 +48,11 @@ app = FastAPI(
 )
 
 # ---- 静态文件: 设备上报的画面、告警截图都从这里访问 ----
-# 例: /static/stream/CAM-SN-001.jpg
+# 例: /static/stream/CAM‑SN‑001.jpg
 from pathlib import Path
 
 Path("static").mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
 
 # ---- 统一异常响应: 让错误也长成 {code, msg, data} 的样子 ----
 @app.exception_handler(StarletteHTTPException)
