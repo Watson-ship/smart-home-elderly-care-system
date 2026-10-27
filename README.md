@@ -36,10 +36,9 @@ smart-home-elderly-care-system/
 │   └── work_order.py
 │
 ├── schemas/                         ← Pydantic 请求/响应校验
-│   ├── common_schema.py             ← 统一响应格式 BaseResp、HealthResp
+│   ├── common_schema.py             ← 统一响应格式 BaseResp、ok() 快捷函数
 │   ├── elder_schema.py              ← 老人档案请求/响应
 │   └── auth_schema.py               ← 登录请求/响应
-│   └── placeholder.py               ← 设备/告警/用药/工单的 schema 后面写接口时再加
 │
 ├── domains/                         ← ✅ 业务领域层 (核心)
 │   ├── auth/                        ← 登录注册
@@ -103,6 +102,34 @@ db/session.py                   ← 提供 engine + SessionLocal 依赖注入
 ```
 
 **infrastructure 层** 是反向依赖规则：domains 业务逻辑层可以调用 infrastructure，但 infrastructure 不能反过来 import domains。比如 `alert/service.py` 生成告警时调用 `infrastructure/ai/inference.py` 的推理函数，这没问题；但 inference.py 里不能 import alert/service.py。
+
+## 接口返回格式（三人必须统一）
+
+所有接口外层都是 `code / msg / data` 三件套，前端只看 `code` 判断成败：
+
+```json
+// 成功
+{"code": 0, "msg": "ok", "data": {"device_sn": "CAM-001", "status": "online"}}
+
+// 失败（code 直接用 HTTP 状态码：400 参数错 / 404 不存在 / 422 校验失败 / 500 服务端错）
+{"code": 404, "msg": "老人 999 不存在", "data": null}
+```
+
+写接口的固定套路（照抄 `domains/device/routes.py`）：
+
+```python
+from schemas.common_schema import BaseResp, ok
+
+@router.post("/x", response_model=BaseResp[XxxResp], summary="接口名")
+def x(...):
+    return ok(XxxResp(...))          # 成功：外面自动包 code=0
+    raise HTTPException(404, "...")   # 失败：main.py 的异常处理器自动包 404
+```
+
+两个要点：
+
+1. `response_model` 必须写成 `BaseResp[XxxResp]` 这种**带泛型的版本**，这样 Swagger 里还能看到 `data` 的具体字段；写成 `BaseResp` 文档里 data 就是空的。
+2. 抛 `HTTPException` 就行，不要自己拼 `{"code": ...}` 字典——`main.py` 里统一注册了异常处理器，错误响应也会自动变成三件套。
 
 ## 快速开始
 

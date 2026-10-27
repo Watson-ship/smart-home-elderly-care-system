@@ -6,12 +6,17 @@
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import config.settings as settings
 from db.base import Base
 from db.session import init_session
-from schemas.common_schema import HealthResp
+from schemas.common_schema import BaseResp, HealthResp, ok
 
 
 @asynccontextmanager
@@ -43,12 +48,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ---- 静态文件: 设备上报的画面、告警截图都从这里访问 ----
+# 例: /static/stream/CAM-SN-001.jpg
+from pathlib import Path
+
+Path("static").mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ---- 统一异常响应: 让错误也长成 {code, msg, data} 的样子 ----
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """HTTPException(404/400...) 统一转成 {code, msg, data}。"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "msg": str(exc.detail), "data": None},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Pydantic 参数校验失败: code=422, data 里放具体哪个字段错了。"""
+    return JSONResponse(
+        status_code=422,
+        content=jsonable_encoder({"code": 422, "msg": "参数校验失败", "data": exc.errors()}),
+    )
+
 
 # ---- 健康检查 ----
-@app.get("/health", response_model=HealthResp, summary="健康检查")
+@app.get("/health", response_model=BaseResp[HealthResp], summary="健康检查")
 def health():
     """验证服务器和数据库都正常"""
-    return {"status": "ok"}
+    return ok(HealthResp(status="ok"))
 
 
 # ---- 注册所有业务路由 ----
