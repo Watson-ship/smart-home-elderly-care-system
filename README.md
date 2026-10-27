@@ -160,6 +160,8 @@ DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?ch
 
 密码里如果有 `@ : / #` 等特殊字符，需要 URL 编码（例如 `@` 写成 `%40`）。如果没有配置，启动时会直接提示“数据库未配置……”，而不是抛出一长串连接错误。
 
+> 注意：PyMySQL 不支持 JDBC 的 `serverTimezone` 参数，URL 里不要加它，否则会报 `unexpected keyword argument 'serverTimezone'`。
+
 ### 3. 创建数据库
 
 只建空库，表交给程序自动建：
@@ -259,6 +261,8 @@ Windows 下也可直接双击 `1-标定.cmd` / `2-跑视频.cmd` / `3-看日志.
 ```bat
 2-跑视频.cmd "D:\videos\demo.mp4"
 ```
+
+> Windows 下 OpenCV 对中文路径支持有限。如果视频放在中文目录里报“无法打开输入源”，先把视频复制到英文/数字路径（例如 `D:\videos\`）再运行。
 
 ### 在后端代码里调用
 
