@@ -1,13 +1,5 @@
-# 虚拟环境
 .venv/
-venv/
-
-# 本地配置（千万别传密码）
 config/settings_local.py
-
-# Python 编译文件
+*.pyc
 __pycache__/
-*.py[cod]
-
-# 运行时产生的文件
-static/
+.idea/

@@ -1,6 +1,11 @@
-fastapi
-uvicorn
-sqlalchemy
-pymysql
-pydantic
-python-multipart
+
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+sqlalchemy>=2.0
+pymysql>=1.1
+cryptography>=42.0
+pydantic>=2.6
+python-jose>=3.3.0
+passlib[bcrypt]>=1.7.4
+
