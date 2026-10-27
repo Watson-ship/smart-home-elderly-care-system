@@ -5,8 +5,9 @@ __pycache__/
 .idea/
 
 # ---------------- 跌倒检测 (fallwatch) ----------------
-# 模型权重（体积大，从 lyh 仓库单独获取）
+# 模型权重：best.pt 随仓库提供，队友克隆即可推理；其他权重忽略
 model/*.pt
+!model/best.pt
 model/*.onnx
 model/*.rknn
 

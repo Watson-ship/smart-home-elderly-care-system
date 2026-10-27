@@ -13,11 +13,10 @@
     2. 强制把工作目录切到项目根目录，模型和输出路径就都对得上。
 
 用法（在 PyCharm 里）：
-    右键本文件 → Run 'app'。
-    或在下方 Run 配置里把 Parameters 填成：
-        --source "C:\\Users\\Lenovo\\Desktop\\摔倒参考 _ 50种摔倒方式-00.00.02.847-00.00.20.567.mp4" --conf-min 0.50 --fall-frames 20 --debounce 5 --no-require-transition --cooldown 5
+    右键本文件 → Run 'app'，然后在 Run 配置的 Parameters 里填：
+        --source "C:/videos/demo.mp4" --conf-min 0.50 --fall-frames 20 --debounce 5 --no-require-transition --cooldown 5
 
-改参数不用改代码：直接在 Run 配置的 Parameters 里改。
+不带参数运行会打印用法；改参数不用改代码，直接在 Run 配置的 Parameters 里改。
 """
 
 from __future__ import annotations
@@ -44,24 +43,25 @@ try:
 except Exception:
     pass
 
-# 没带参数时给一套默认参数，这样直接点运行也能出结果
-DEFAULT_ARGS = [
-    "--source",
-    r"C:\Users\Lenovo\Desktop\摔倒参考 _ 50种摔倒方式-00.00.02.847-00.00.20.567.mp4",
-    "--conf-min", "0.50",
-    "--fall-frames", "20",
-    "--debounce", "5",
-    "--no-require-transition",
-    "--cooldown", "5",
-]
 
 if __name__ == "__main__":
-    argv = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_ARGS
+    # 不带参数时打印用法，避免使用别人电脑上不存在的默认视频路径
+    if len(sys.argv) <= 1:
+        print('用法: python app.py --source "视频路径" [其他参数]')
+        print(
+            '示例: python app.py --source "C:/videos/demo.mp4" '
+            "--conf-min 0.50 --fall-frames 20 --debounce 5 "
+            "--no-require-transition --cooldown 5"
+        )
+        print("查看全部参数: python app.py --help")
+        sys.exit(0)
+
+    argv = sys.argv[1:]
 
     missing = os.path.join(PROJECT_ROOT, "model", "best.pt")
     if not os.path.exists(missing):
         print(f"[错误] 找不到模型文件: {missing}")
-        print("       请确认 model/best.pt 存在（约 21.5 MB）。")
+        print("       请确认 model/best.pt 存在（约 22 MB），或运行: python tools/fetch_model.py")
         sys.exit(3)
 
     print(f"工作目录: {os.getcwd()}")

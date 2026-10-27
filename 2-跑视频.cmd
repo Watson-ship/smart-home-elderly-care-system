@@ -22,7 +22,13 @@ set PY=.venv\Scripts\python.exe
 if not exist "%PY%" set PY=python
 
 set VIDEO=%~1
-if "%VIDEO%"=="" set VIDEO=C:\Users\Lenovo\Desktop\摔倒参考 _ 50种摔倒方式.mp4
+if "%VIDEO%"=="" (
+  echo [错误] 没有指定视频文件。
+  echo        请把视频文件拖到本 .cmd 文件上，或执行：
+  echo        2-跑视频.cmd "D:\path\video.mp4"
+  pause
+  exit /b 1
+)
 
 set CONFMIN=%~2
 if "%CONFMIN%"=="" set CONFMIN=0.50

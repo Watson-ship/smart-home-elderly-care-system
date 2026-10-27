@@ -12,9 +12,14 @@ set PYTHONIOENCODING=utf-8
 set PY=.venv\Scripts\python.exe
 if not exist "%PY%" set PY=python
 
-REM 默认视频路径，按需修改
 set VIDEO=%~1
-if "%VIDEO%"=="" set VIDEO=C:\Users\Lenovo\Desktop\摔倒参考 _ 50种摔倒方式.mp4
+if "%VIDEO%"=="" (
+  echo [错误] 没有指定视频文件。
+  echo        请把视频文件拖到本 .cmd 文件上，或执行：
+  echo        1-标定.cmd "D:\path\video.mp4"
+  pause
+  exit /b 1
+)
 
 echo ============================================================
 echo  标定模式（不判定事件，只统计模型输出）

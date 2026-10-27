@@ -21,6 +21,13 @@ from schemas.common_schema import BaseResp, HealthResp, ok
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI 生命周期: 启动时连库建表, 空表自动插种子, 关闭时清理。"""
+    if "你的密码" in settings.DATABASE_URL:
+        raise RuntimeError(
+            "数据库未配置：请复制 config/settings_local.example.py 为 "
+            "config/settings_local.py 并填入 MySQL 密码，"
+            "或设置环境变量 DATABASE_URL 后重试。"
+        )
+
     init_session(settings.DATABASE_URL)
 
     # 导入所有模型, 让 Base.metadata 能发现所有表

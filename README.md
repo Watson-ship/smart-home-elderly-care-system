@@ -15,10 +15,11 @@ smart-home-elderly-care-system/
 │
 ├── main.py                          ← 启动入口: 连库建表 + 注册所有路由
 ├── requirements.txt                 ← 依赖清单
-├── .gitignore                       ← 密码/权重/截图等忽略
+├── .gitignore                       ← 密码/虚拟环境/运行产物等忽略
 │
 ├── config/                          ← 基础设施配置 (不属于业务)
 │   ├── settings.py                  ← 统一配置 (模板, 会上传)
+│   ├── settings_local.example.py    ← 本地配置模板 (复制后改名使用)
 │   └── settings_local.py            ← 你的本地密码 (gitignore 了, 不上传)
 │
 ├── db/                              ← 数据库基础设施
@@ -133,23 +134,31 @@ def x(...):
 
 ## 快速开始
 
+> 刚 clone 下来的仓库**不包含** `.venv/`、`config/settings_local.py`、`out/`，需要按下面步骤在本地生成。
+
 ### 1. 安装依赖
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ### 2. 配置数据库密码
 
-项目根目录下创建 `config/settings_local.py`（已被 gitignore 忽略，不会上传）：
+复制模板文件：
+
+```powershell
+Copy-Item config\settings_local.example.py config\settings_local.py
+```
+
+然后把 `config/settings_local.py` 里的「你的密码」改成你自己的 MySQL 密码（该文件已被 gitignore 忽略，不会上传）：
 
 ```python
 DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4&serverTimezone=Asia/Shanghai"
 ```
 
-密码里如果有 `@ : / #` 等特殊字符，需要 URL 编码（例如 `@` 写成 `%40`）。
+密码里如果有 `@ : / #` 等特殊字符，需要 URL 编码（例如 `@` 写成 `%40`）。如果没有配置，启动时会直接提示“数据库未配置……”，而不是抛出一长串连接错误。
 
 ### 3. 创建数据库
 
@@ -211,7 +220,7 @@ smart-home-elderly-care-system/
 │   ├── state_machine.py      ←   滑动窗口 + 轨迹跟踪 + 场景切换 + 冷却
 │   ├── logger.py             ←   JSONL + SQLite 双写与抓拍
 │   └── cli.py                ←   命令行入口
-├── model/best.pt             ← 跌倒/姿态分类权重（约 21.5 MB，已被 .gitignore 忽略）
+├── model/best.pt             ← 跌倒/姿态分类权重（约 22 MB，随仓库提供）
 ├── out/                      ← 运行产物 events.jsonl / events.db / snapshots/
 ├── tools/                    ← dry_run.py 标定、fetch_model.py 拉权重、query_events.py 查日志
 ├── app.py                    ← PyCharm 直接运行入口
@@ -223,12 +232,14 @@ smart-home-elderly-care-system/
 
 ### 安装依赖
 
-`requirements.txt` 已合并 `ultralytics` / `opencv-python`：
+`requirements.txt` 已合并 `ultralytics` / `opencv-python`，模型 `model/best.pt` 也已随仓库提供：
 
 ```bash
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
+
+> `out/` 是运行产物目录（事件日志、SQLite、抓拍图），仓库里不包含，第一次运行时会自动创建。如果模型文件被删了，可以执行 `python tools/fetch_model.py` 重新下载。
 
 ### 命令行使用
 
@@ -243,7 +254,11 @@ python -m fallwatch.cli --source "视频.mp4" --conf-min 0.50 --fall-frames 20 -
 python tools/query_events.py --limit 50
 ```
 
-Windows 下也可直接双击 `1-标定.cmd` / `2-跑视频.cmd` / `3-看日志.cmd`。
+Windows 下也可直接双击 `1-标定.cmd` / `2-跑视频.cmd` / `3-看日志.cmd`。其中前两个需要把视频文件拖到脚本上，或把视频路径作为第一个参数传入，例如：
+
+```bat
+2-跑视频.cmd "D:\videos\demo.mp4"
+```
 
 ### 在后端代码里调用
 
