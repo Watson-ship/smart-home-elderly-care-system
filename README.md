@@ -155,7 +155,7 @@ Copy-Item config\settings_local.example.py config\settings_local.py
 然后把 `config/settings_local.py` 里的「你的密码」改成你自己的 MySQL 密码（该文件已被 gitignore 忽略，不会上传）：
 
 ```python
-DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4&serverTimezone=Asia/Shanghai"
+DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4"
 ```
 
 密码里如果有 `@ : / #` 等特殊字符，需要 URL 编码（例如 `@` 写成 `%40`）。如果没有配置，启动时会直接提示“数据库未配置……”，而不是抛出一长串连接错误。

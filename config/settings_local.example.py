@@ -8,4 +8,4 @@
 如果密码里有 @ : / # 等特殊字符，需要 URL 编码（例如 @ 写成 %40）。
 """
 
-DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4&serverTimezone=Asia/Shanghai"
+DATABASE_URL = "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4"

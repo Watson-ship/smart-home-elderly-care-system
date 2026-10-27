@@ -28,9 +28,9 @@ DATABASE_URL = os.getenv(
     _local(
         "DATABASE_URL",
         # TODO: 如果你没建 settings_local.py, 就把这里改成你自己的 MySQL 连接串
-        # 格式: mysql+pymysql://用户名:密码@主机:端口/数据库名?charset=utf8mb4&serverTimezone=Asia/Shanghai
+        # 格式: mysql+pymysql://用户名:密码@主机:端口/数据库名?charset=utf8mb4
         # 密码里如果有 @ : / # 等特殊字符需要 URL 编码 (例如 @ 写成 %40)
-        "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4&serverTimezone=Asia/Shanghai",
+        "mysql+pymysql://root:你的密码@127.0.0.1:3306/elderly_care?charset=utf8mb4",
     ),
 )
 
