@@ -12,8 +12,9 @@ ai_training/weights/*.pt
 ai_training/weights/*.pth
 ai_training/weights/*.onnx
 
-# 静态资源 (截图等, 运行时生成)
+# 静态资源 (截图、设备上报画面, 运行时生成)
 static/screenshots/
+static/stream/
 
 # IDE
 .idea/
