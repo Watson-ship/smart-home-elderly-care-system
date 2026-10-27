@@ -1,4 +1,5 @@
 
+# ---------------- 后端 API ----------------
 fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9
@@ -9,3 +10,12 @@ pydantic>=2.6
 python-jose>=3.3.0
 passlib[bcrypt]>=1.7.4
 
+# ---------------- 跌倒检测 (fallwatch) ----------------
+# YOLOv8 推理；会自带 torch / torchvision / numpy / opencv-python
+ultralytics>=8.0.196
+# 视频解码与绘制
+opencv-python>=4.8.0
+
+# 若加载 best.pt 报 "Weights only load failed"，是 torch>=2.6 的
+# weights_only 默认值变化所致；fallwatch/detector.py 已内置兼容处理。
+# 仍失败时可执行: pip install "ultralytics==8.0.196"

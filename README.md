@@ -198,3 +198,68 @@ INFO:     Uvicorn running on http://127.0.0.1:5000
 全库采用**逻辑外键**——表之间用 `elder_id`、`plan_id` 等普通字段 + 索引关联，没有数据库物理外键约束，关联正确性由业务代码保证。删除父记录前代码里要先删掉子记录（例如删用药计划前先删该计划的服药记录）。
 
 改了模型字段后，删掉数据库里对应的表，重启 `python main.py` 即可自动重建。
+
+## 跌倒检测模块（fallwatch）
+
+原 `fall-watch` 项目已融入本仓库，**保留其原始包布局**，直接平铺在项目根目录；原有后端目录没有移动、改名或删除。新增内容如下：
+
+```
+smart-home-elderly-care-system/
+├── fallwatch/                ← 跌倒判定包
+│   ├── config.py             ←   所有可调阈值集中在此
+│   ├── detector.py           ←   YOLOv8 模型加载与推理
+│   ├── state_machine.py      ←   滑动窗口 + 轨迹跟踪 + 场景切换 + 冷却
+│   ├── logger.py             ←   JSONL + SQLite 双写与抓拍
+│   └── cli.py                ←   命令行入口
+├── model/best.pt             ← 跌倒/姿态分类权重（约 21.5 MB，已被 .gitignore 忽略）
+├── out/                      ← 运行产物 events.jsonl / events.db / snapshots/
+├── tools/                    ← dry_run.py 标定、fetch_model.py 拉权重、query_events.py 查日志
+├── app.py                    ← PyCharm 直接运行入口
+├── 1-标定.cmd / 2-跑视频.cmd / 3-看日志.cmd / run.cmd
+└── infrastructure/ai/
+    ├── model_loader.py       ← 加载 fallwatch.Detector（供后端复用）
+    └── inference.py          ← 后端调用封装：单帧检测 + 有状态 FallMonitor
+```
+
+### 安装依赖
+
+`requirements.txt` 已合并 `ultralytics` / `opencv-python`：
+
+```bash
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 命令行使用
+
+```bash
+# 1) 标定：只看模型输出分布，不判事件
+python tools/dry_run.py "视频.mp4" --truth 50
+
+# 2) 判定并写日志
+python -m fallwatch.cli --source "视频.mp4" --conf-min 0.50 --fall-frames 20 --debounce 5 --no-require-transition --cooldown 5
+
+# 3) 查看已记录事件
+python tools/query_events.py --limit 50
+```
+
+Windows 下也可直接双击 `1-标定.cmd` / `2-跑视频.cmd` / `3-看日志.cmd`。
+
+### 在后端代码里调用
+
+```python
+from infrastructure.ai.inference import FallMonitor, infer_frame
+
+# 单帧：检测 + 是否跌倒
+result = infer_frame(frame_bgr)
+if result.is_fall:
+    ...
+
+# 视频流：带滑动窗口 / 轨迹 / 冷却的有状态判定
+monitor = FallMonitor(conf_min=0.5, fall_frames_min=20)
+result = monitor.process(frame_bgr, t=timestamp_seconds)
+for event in result.events:
+    ...
+```
+
+模型路径默认取 `model/best.pt`，可用环境变量 `AI_MODEL_PATH` 覆盖（见 `config/settings.py`）。

@@ -43,7 +43,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120
 STORAGE_PATH = os.getenv("STORAGE_PATH", _local("STORAGE_PATH", "static/screenshots"))
 
 # ---- AI 相关 ----
-AI_MODEL_PATH = os.getenv("AI_MODEL_PATH", _local("AI_MODEL_PATH", "ai_training/weights/fall_detect.pt"))
+AI_MODEL_PATH = os.getenv("AI_MODEL_PATH", _local("AI_MODEL_PATH", "model/best.pt"))
 AI_INFERENCE_TIMEOUT = float(os.getenv("AI_INFERENCE_TIMEOUT", _local("AI_INFERENCE_TIMEOUT", "3.0")))
 STATIC_SECONDS_THRESHOLD = int(os.getenv("STATIC_SECONDS_THRESHOLD", _local("STATIC_SECONDS_THRESHOLD", "120")))
 

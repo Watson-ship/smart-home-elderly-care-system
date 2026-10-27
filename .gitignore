@@ -3,3 +3,15 @@ config/settings_local.py
 *.pyc
 __pycache__/
 .idea/
+
+# ---------------- 跌倒检测 (fallwatch) ----------------
+# 模型权重（体积大，从 lyh 仓库单独获取）
+model/*.pt
+model/*.onnx
+model/*.rknn
+
+# 运行产物：事件日志 / 数据库 / 抓拍
+out/
+*.db
+*.db-wal
+*.db-shm
