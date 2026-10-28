@@ -1,4 +1,4 @@
-"""老人档案业务逻辑。
+"""老人档案业务逻辑"""
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from models.elder import Elder
@@ -7,7 +7,7 @@ from domains.elder.schema import ElderCreateReq, ElderUpdateReq
 def get_elder_list(db: Session, keyword: str = None, page: int = 1, size: int = 10):
     query = db.query(Elder)
     if keyword:
-        query = query.filter(Elder.name.like(f"%{keyword}%"))
+        query = query.filter(Elder.elder_name.like(f"%{keyword}%"))
     total = query.count()
     items = query.offset((page - 1) * size).limit(size).all()
     return {"total": total, "items": items}
@@ -33,7 +33,7 @@ def update_elder(db: Session, elder_id: int, data: ElderUpdateReq):
     db.commit()
     db.refresh(elder)
     return elder
-"""
+
 
 
 # def create_elder(db, elder_create: ElderCreateReq):
