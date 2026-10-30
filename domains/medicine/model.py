@@ -3,6 +3,7 @@ from db.base import Base
 
 class MedicinePlan(Base):
     __tablename__ = "medicine_plan"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True, comment="主键")
     elder_id = Column(Integer, nullable=False, comment="老人id")
