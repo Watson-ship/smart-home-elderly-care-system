@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from db.session import get_db, get_current_user
 from schemas.common_schema import BaseResp, ok
-from .service import get_medicine_plan_list, create_medicine_plan
-from .schema import MedicinePlanSchema, MedicinePlanCreate
+from .service import get_medicine_plan_list, create_medicine_plan, update_medicine_plan, delete_medicine_plan
+from .schema import MedicinePlanSchema, MedicinePlanCreate, MedicinePlanUpdate
 
 router = APIRouter(prefix="/api/medicine", tags=["用药"])
 
@@ -46,3 +46,34 @@ def create_plan(
     elder_id = current_user.elder_id
     data = create_medicine_plan(db, elder_id, plan_in)
     return ok(data=data)
+
+
+@router.put("/plan/{plan_id}", response_model=BaseResp[MedicinePlanSchema], summary="家属编辑用药计划")
+def update_plan(
+    plan_id: int,
+    plan_in: MedicinePlanUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    if current_user.role != "family":
+        raise HTTPException(status_code=403, detail="仅家属角色可以编辑用药计划")
+    if not current_user.elder_id:
+        raise HTTPException(status_code=400, detail="该家属账号还未绑定老人，无法编辑用药计划")
+    elder_id = current_user.elder_id
+    data = update_medicine_plan(db, plan_id, plan_in, elder_id)
+    return ok(data=data)
+
+
+@router.delete("/plan/{plan_id}", response_model=BaseResp, summary="家属删除用药计划")
+def delete_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    if current_user.role != "family":
+        raise HTTPException(status_code=403, detail="仅家属角色可以删除用药计划")
+    if not current_user.elder_id:
+        raise HTTPException(status_code=400, detail="该家属账号还未绑定老人，无法删除用药计划")
+    elder_id = current_user.elder_id
+    delete_medicine_plan(db, plan_id, elder_id)
+    return ok()
