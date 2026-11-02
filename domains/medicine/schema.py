@@ -9,6 +9,22 @@ class MedicinePlanCreate(BaseModel):
 class MedicinePlanUpdate(MedicinePlanCreate):
     status: Literal[0, 1] = Field(description="状态：1启用，0停用")
 
+class MedicineRecordCreate(BaseModel):
+    plan_id: int = Field(gt=0, description="用药计划ID")
+    take_result: Literal["taken", "untaken"] = Field(description="taken已服 / untaken未服")
+
+class MedicineRecordSchema(BaseModel):
+    id: int
+    plan_id: int
+    elder_id: int
+    remind_date: str
+    take_result: str
+    record_time: str | None
+
+    class Config:
+        from_attributes = True
+
+
 class MedicinePlanSchema(BaseModel):
     id: int
     elder_id: int
