@@ -86,6 +86,8 @@ class FallMonitor:
         fall_frames_min: Optional[int] = None,
         require_transition: Optional[bool] = None,
         cooldown_sec: Optional[float] = None,
+        per_track_cooldown_sec: Optional[float] = None,
+        per_track_reset_frames: Optional[int] = None,
         debounce_frames: Optional[int] = None,
         scene_cut_diff=None,
     ) -> None:
@@ -102,6 +104,10 @@ class FallMonitor:
             "fall_frames_min": fall_frames_min,
             "require_transition": require_transition,
             "cooldown_sec": cooldown_sec,
+            # 同一个人两次告警的最小间隔 / 复位所需帧数: 离线跑短视频时调小,
+            # 才能把一段视频里的多次跌倒都截下来(默认 20s 会把后面的跌倒吞掉)
+            "per_track_cooldown_sec": per_track_cooldown_sec,
+            "per_track_reset_frames": per_track_reset_frames,
             "debounce_frames": debounce_frames,
         }
         if scene_cut_diff is not None:
