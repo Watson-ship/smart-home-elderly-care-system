@@ -4,6 +4,11 @@ config/settings_local.py
 __pycache__/
 .idea/
 
+# 静态资源 (告警截图、设备上传视频, 运行时生成)
+static/screenshots/
+static/stream/
+static/videos/
+
 # ---------------- 跌倒检测 (fallwatch) ----------------
 # 模型权重：best.pt 随仓库提供，队友克隆即可推理；其他权重忽略
 model/*.pt

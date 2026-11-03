@@ -54,8 +54,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ---- 静态文件: 设备上报的画面、告警截图都从这里访问 ----
-# 例: /static/stream/CAM‑SN‑001.jpg
+# ---- 静态文件: 设备上传的视频、告警截图都从这里访问 ----
+# 例: /static/videos/CAM-SN-001/20261027_140211_288.mp4
 from pathlib import Path
 
 Path("static").mkdir(exist_ok=True)
@@ -104,7 +104,73 @@ app.include_router(medicine_router)
 app.include_router(work_order_router)
 
 
+# ---- 根路径: 直接访问 http://localhost:5000/ 时给个导航, 而不是 404 ----
+@app.get("/", include_in_schema=False)
+def root():
+    """给浏览器/新人一个入口, 真正的接口文档在 /docs。"""
+    return ok(
+        {
+            "name": "居家老人监测系统 API",
+            "version": app.version,
+            "docs": "/docs",
+            "openapi": "/openapi.json",
+            "health": "/health",
+            "auth": "/api/auth/login",
+            "device": "/api/device/heartbeat",
+        },
+        msg="服务已启动, 接口文档请打开 /docs",
+    )
+
+
+def _port_available(port: int) -> bool:
+    """试探端口能不能绑定(不设 SO_REUSEADDR, 避免 Windows 上误判为可用)。"""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def _pick_port(preferred: int, span: int = 20) -> int:
+    """优先用 preferred, 被占用就顺延找下一个空闲端口(最多找 span 个)。"""
+    for port in range(preferred, preferred + span + 1):
+        if _port_available(port):
+            return port
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))  # 全被占就让系统随机分一个
+        return s.getsockname()[1]
+
+
 if __name__ == "__main__":
+    import os
+
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=5000, reload=True)
+
+    # ---- 直接运行即可: PyCharm 里点 Run main.py, 或命令行 python main.py ----
+    # 1) 默认不开 reload: reload 会额外起一个子进程, PyCharm 点停止时容易残留,
+    #    残留进程占着端口, 下次启动就会报 WinError 10013 / 地址已被占用。
+    #    需要热重载时再设环境变量 RELOAD=1。
+    # 2) 5000 被别的进程占用(例如上一次没关干净的实例)时自动顺延到 5001/5002...,
+    #    并在控制台把实际地址打印出来, 不需要你手动改端口。
+    preferred = int(os.getenv("PORT", "5000"))
+    port = _pick_port(preferred)
+    reload_mode = os.getenv("RELOAD", "0") == "1"
+
+    print("=" * 64, flush=True)
+    print("  居家老人监测系统 API 已启动", flush=True)
+    print(f"  接口文档(点这个最省事): http://127.0.0.1:{port}/docs", flush=True)
+    print(f"  健康检查:                http://127.0.0.1:{port}/health", flush=True)
+    if port != preferred:
+        print(f"  注意: 端口 {preferred} 被占用或不可用, 已自动改用 {port}", flush=True)
+    if reload_mode:
+        print("  热重载: 已开启(RELOAD=1), 停止时请确认端口已释放", flush=True)
+    print("  停止: 在这个窗口按 Ctrl+C, 或点 PyCharm 的停止按钮", flush=True)
+    print("=" * 64, flush=True)
+
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=reload_mode)
 
