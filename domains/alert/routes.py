@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from db.session import get_current_user, get_db
 from domains.alert import service
-from domains.alert.schema import AlertDetail, AlertItem, SosCancelResp, SosReq, SosResp
+from domains.alert.schema import AlertDetail, AlertHandleResp, AlertItem, SosCancelResp, SosReq, SosResp
 from schemas.common_schema import BaseResp, ok
 
 router = APIRouter(prefix="/api/alert", tags=["告警"])
@@ -118,3 +118,19 @@ def alert_detail(
     elder_id = _require_elder_id(current_user)
     data = service.get_alert_detail(db, alert_id, elder_id)
     return ok(AlertDetail(**data))
+
+
+@router.post("/{alert_id}/handle", response_model=BaseResp[AlertHandleResp], summary="标记告警已处置")
+def handle_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """家属/老人本人把告警标记为已处置。
+
+    is_handled=1, handled_by=当前登录用户, handle_time=当前时间。
+    404: 告警不存在; 403: 属于别的老人; 400: 已经处置过。
+    """
+    elder_id = _require_elder_id(current_user)
+    data = service.handle_alert(db, alert_id, elder_id, current_user.id)
+    return ok(AlertHandleResp(**data), msg="告警已标记为已处置")

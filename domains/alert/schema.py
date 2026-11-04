@@ -58,3 +58,12 @@ class AlertDetail(AlertItem):
     order_id: Optional[int] = None
     order_status: Optional[str] = None
     handled_by_name: Optional[str] = None
+
+
+class AlertHandleResp(BaseModel):
+    """标记已处置后的结果"""
+    alert_id: int
+    is_handled: int = 1
+    handled_by: int
+    handled_by_name: Optional[str] = None
+    handle_time: datetime

@@ -194,6 +194,36 @@ def get_alert_detail(db: Session, alert_id: int, elder_id: int) -> dict:
     return item
 
 
+def handle_alert(db: Session, alert_id: int, elder_id: int, user_id: int) -> dict:
+    """标记告警已处置: is_handled=1, handled_by=当前用户, handle_time=当前时间。
+
+    404: 告警不存在; 403: 告警属于别的老人; 400: 已经被处置过(不覆盖原处置人)。
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"告警 {alert_id} 不存在")
+    if alert.elder_id != elder_id:
+        raise HTTPException(status_code=403, detail="无权处置该告警")
+    if alert.is_handled == 1:
+        raise HTTPException(status_code=400, detail=f"告警 {alert_id} 已处置, 无需重复操作")
+
+    alert.is_handled = 1
+    alert.handled_by = user_id
+    alert.handle_time = datetime.now()
+    db.commit()
+    db.refresh(alert)
+
+    handler = db.get(User, user_id)
+    print(f"[ALERT] 告警 {alert.id} 已处置 by user={user_id}", flush=True)
+    return {
+        "alert_id": alert.id,
+        "is_handled": alert.is_handled,
+        "handled_by": alert.handled_by,
+        "handled_by_name": handler.username if handler else None,
+        "handle_time": alert.handle_time,
+    }
+
+
 def list_alerts(db: Session, elder_id: int, limit: int = 50) -> list[dict]:
     """按时间倒序返回某位老人的告警(含截图可访问地址)。"""
     rows = (
