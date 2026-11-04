@@ -10,12 +10,12 @@ Person B 后续追加:
 - POST   /api/alert/{id}/handle  家属/社康标记已处置
 - POST   /api/alert/ai-detect    AI 推理结果回调(内部用)
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from db.session import get_current_user, get_db
 from domains.alert import service
-from domains.alert.schema import AlertItem, SosCancelResp, SosReq, SosResp
+from domains.alert.schema import AlertDetail, AlertItem, SosCancelResp, SosReq, SosResp
 from schemas.common_schema import BaseResp, ok
 
 router = APIRouter(prefix="/api/alert", tags=["告警"])
@@ -84,3 +84,37 @@ def my_alerts(
     limit = max(1, min(limit, 200))
     items = service.list_alerts(db, elder_id, limit=limit)
     return ok([AlertItem(**item) for item in items])
+
+
+# ---------------- Person B 追加: 告警列表 / 告警详情 ----------------
+
+
+@router.get("", response_model=BaseResp[list[AlertItem]], summary="告警列表(可按处置状态过滤)")
+def alert_list(
+    handled: int | None = Query(None, ge=0, le=1, description="0只看未处置, 1只看已处置, 不传看全部"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """按当前账号绑定关系查告警: 老人看自己的, 家属看绑定的那位老人。
+
+    截图字段返回 screenshot_url, 前端直接 <img src> 即可。
+    """
+    elder_id = _require_elder_id(current_user)
+    items = service.list_alerts_filtered(db, elder_id, handled=handled, limit=limit)
+    return ok([AlertItem(**item) for item in items])
+
+
+@router.get("/{alert_id}", response_model=BaseResp[AlertDetail], summary="告警详情(含工单状态/处置人)")
+def alert_detail(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """返回告警基础信息 + 关联工单状态 + 处置人姓名。
+
+    404: 告警不存在; 403: 该告警属于别的老人。
+    """
+    elder_id = _require_elder_id(current_user)
+    data = service.get_alert_detail(db, alert_id, elder_id)
+    return ok(AlertDetail(**data))

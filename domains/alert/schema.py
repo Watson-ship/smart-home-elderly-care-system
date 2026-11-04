@@ -47,3 +47,14 @@ class AlertItem(BaseModel):
     handled_by: Optional[int] = None
     handle_time: Optional[datetime] = None
     create_time: Optional[datetime] = None
+
+
+# ---------------- Person B 追加 ----------------------------
+
+
+class AlertDetail(AlertItem):
+    """告警详情: 基础信息 + 关联工单状态 + 处置人姓名"""
+    elder_name: Optional[str] = None
+    order_id: Optional[int] = None
+    order_status: Optional[str] = None
+    handled_by_name: Optional[str] = None
