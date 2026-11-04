@@ -21,3 +21,6 @@ out/
 *.db
 *.db-wal
 *.db-shm
+
+# 运行产物：消息推送日志(控制台 + logs/push.log)
+logs/

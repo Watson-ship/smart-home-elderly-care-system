@@ -55,3 +55,11 @@ MEDICINE_CHECK_INTERVAL_MINUTES = int(os.getenv("MEDICINE_CHECK_INTERVAL_MINUTES
 
 # ---- 设备在线 ----
 DEVICE_HEARTBEAT_TIMEOUT = int(os.getenv("DEVICE_HEARTBEAT_TIMEOUT", _local("DEVICE_HEARTBEAT_TIMEOUT", "90")))
+
+# 心跳超时置离线的判定阈值(秒): 设备每 10 秒心跳一次, 留 2 分钟容忍抖动/短暂断网
+DEVICE_OFFLINE_TIMEOUT = int(
+    os.getenv("DEVICE_OFFLINE_TIMEOUT", _local("DEVICE_OFFLINE_TIMEOUT", "120"))
+)
+
+# 定时任务开关: 测试/单次脚本里可以设 SCHEDULER_ENABLED=0 跳过 APScheduler
+SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", _local("SCHEDULER_ENABLED", "1")) != "0"

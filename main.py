@@ -43,7 +43,16 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as session:
         seed_if_empty(session)
 
+    # 阶段 2: 定时任务(设备掉线扫描 30s / 服药提醒 60s)
+    # apscheduler 没装或 SCHEDULER_ENABLED=0 时只是不跑定时任务, 不影响接口使用
+    from infrastructure.scheduler.task import shutdown_scheduler, start_scheduler
+
+    scheduler_started = start_scheduler()
+    print(f"[启动] 定时任务: {'已启动' if scheduler_started else '未启动'}")
+
     yield
+
+    shutdown_scheduler()
     print("[关闭] 应用已清理")
 
 

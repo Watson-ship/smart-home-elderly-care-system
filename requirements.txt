@@ -10,6 +10,10 @@ passlib[bcrypt]>=1.7.4
 # passlib 1.7.4 与 bcrypt 5.x 不兼容（后台自检会报 72 字节错误），固定 4.x
 bcrypt>=4.0,<5
 
+# ---------------- 定时任务 ----------------
+# 设备掉线扫描(30s) + 服药提醒扫描(60s)
+apscheduler>=3.10,<4
+
 # ---------------- 跌倒检测 (fallwatch) ----------------
 # YOLOv8 推理；会自带 torch / torchvision / numpy / opencv-python
 ultralytics>=8.0.196
