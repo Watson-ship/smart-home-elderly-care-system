@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from infrastructure.push.notify import notify
+from infrastructure.storage.file_store import resolve_static_path
 from models import Alert, Device, Elder, User, WorkOrder
 
 
@@ -267,6 +268,25 @@ def handle_alert(db: Session, alert_id: int, elder_id: int, user_id: int) -> dic
         "handled_by_name": handler.username if handler else None,
         "handle_time": alert.handle_time,
     }
+
+
+def get_screenshot_path(db: Session, alert_id: int, elder_id: int):
+    """取告警截图的可访问文件路径。
+
+    404: 告警不存在 / 没有截图 / 文件已被清理; 403: 告警属于别的老人。
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"告警 {alert_id} 不存在")
+    if alert.elder_id != elder_id:
+        raise HTTPException(status_code=403, detail="无权查看该告警")
+    if not alert.screenshot_path:
+        raise HTTPException(status_code=404, detail=f"告警 {alert_id} 没有截图")
+
+    path = resolve_static_path(alert.screenshot_path)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"告警 {alert_id} 的截图文件不存在")
+    return path
 
 
 def list_alerts(db: Session, elder_id: int, limit: int = 50) -> list[dict]:

@@ -11,6 +11,7 @@ Person B 后续追加:
 - POST   /api/alert/ai-detect    AI 推理结果回调(内部用)
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from db.session import get_current_user, get_db
@@ -134,3 +135,23 @@ def handle_alert(
     elder_id = _require_elder_id(current_user)
     data = service.handle_alert(db, alert_id, elder_id, current_user.id)
     return ok(AlertHandleResp(**data), msg="告警已标记为已处置")
+
+
+# ---------------- Person B 追加: 告警截图 ----------------
+
+
+@router.get("/{alert_id}/screenshot", summary="查看告警截图")
+def alert_screenshot(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """直接返回截图的二进制内容, 前端用 <img src> 打开这个地址即可。
+
+    按库里实际记录的 screenshot_path 取文件, 摄像端上传的图和 AI 生成的图都能读。
+    404: 告警不存在 / 没截图 / 文件已被清理; 403: 属于别的老人。
+    """
+    elder_id = _require_elder_id(current_user)
+    path = service.get_screenshot_path(db, alert_id, elder_id)
+    media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(path, media_type=media_type, filename=path.name)
