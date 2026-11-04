@@ -10,9 +10,9 @@ Owner 划分 (两人共用本文件, 不要动对方的部分):
         POST /api/device/detect      提交一整段视频, 后端离线跑 AI 并截取跌倒帧(联调/验收用)
         POST /api/device/detect/latest  不用重传: 直接检测该设备最新上传的那段视频
         POST /api/device/bind        绑定设备与老人
+        GET  /api/device/stream/{sn} 家属端查看最新跌倒截图(FileResponse, 直接给 img src)
     Person B (家属方向) —— 阶段 2 追加
         GET  /api/device                 家属查看自己老人绑定的摄像头列表
-        GET  /api/device/stream/{sn}     家属查看实时画面
 
 注意: 摄像头是机器, 靠 device_sn 认身份, 以上接口不需要登录。
       设备必须先手动注册, 心跳/上传视频/上传截图才被接受。
@@ -27,6 +27,7 @@ import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from db.session import get_db
@@ -389,6 +390,47 @@ async def detect_latest_video(
     )
 
     return ok(resp, msg="ok" if resp.screenshots else "未检测到跌倒, 没有截图")
+
+
+@router.get(
+    "/stream/{device_sn}",
+    summary="家属查看摄像头最新画面(跌倒截图)",
+    response_class=FileResponse,
+)
+def get_stream_snapshot(device_sn: str, name: str | None = None):
+    """返回该设备最新的一张跌倒截图文件(直接给 <img src> 用)。
+
+    为什么不用 /static/stream/... 直接访问:
+        浏览器拿不到"最新一张"这个语义, 文件名带毫秒时间戳, 前端无法拼接;
+        这个接口每次取目录里 mtime 最新的 jpg, 前端换 src 就能"刷新画面"。
+    name 参数可选: 想指定某一张(例如告警列表里点开某条)时传完整文件名。
+
+    目录不存在 / 没有截图时返回 404(前端可显示占位图)。
+    """
+    safe_sn = "".join(ch for ch in device_sn if ch.isalnum() or ch in "-_")
+    if not safe_sn:
+        raise HTTPException(status_code=400, detail="设备序列号不合法")
+
+    device_dir = service.STREAM_DIR / safe_sn
+    if not device_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"设备 {device_sn} 还没有上传过截图")
+
+    if name:
+        # 只接受纯文件名, 挡住 ../ 路径穿越
+        file_name = Path(name).name
+        target = device_dir / file_name
+        if not target.is_file() or target.suffix.lower() not in service.STREAM_SUFFIXES:
+            raise HTTPException(status_code=404, detail=f"截图 {file_name} 不存在")
+    else:
+        shots = [
+            p for p in device_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in service.STREAM_SUFFIXES
+        ]
+        if not shots:
+            raise HTTPException(status_code=404, detail=f"设备 {device_sn} 还没有上传过截图")
+        target = max(shots, key=lambda p: p.stat().st_mtime)
+
+    return FileResponse(target, media_type="image/jpeg", filename=target.name)
 
 
 @router.post("/bind", response_model=BaseResp[BindResp], summary="绑定设备与老人")
