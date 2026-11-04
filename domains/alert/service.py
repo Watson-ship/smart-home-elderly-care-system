@@ -181,6 +181,64 @@ def cancel_latest_sos(db: Session, elder_id: int, user_id: int | None = None) ->
     }
 
 
+# ---------------- Person B 追加: 告警列表(支持未处置过滤) / 告警详情 ----------------
+
+
+def _to_item(alert: Alert) -> dict:
+    """告警 -> 列表项字典(screenshot_path 存的是相对 static 的路径)。"""
+    return {
+        "id": alert.id,
+        "elder_id": alert.elder_id,
+        "device_id": alert.device_id,
+        "alert_type": alert.alert_type,
+        "screenshot_path": alert.screenshot_path,
+        "screenshot_url": f"/static/{alert.screenshot_path}" if alert.screenshot_path else None,
+        "is_handled": alert.is_handled,
+        "handled_by": alert.handled_by,
+        "handle_time": alert.handle_time,
+        "create_time": alert.create_time,
+    }
+
+
+def list_alerts_filtered(
+    db: Session, elder_id: int, handled: int | None = None, limit: int = 50
+) -> list[dict]:
+    """按 elder_id 倒序返回告警; handled=0/1 时只返回未处置/已处置的。"""
+    query = db.query(Alert).filter(Alert.elder_id == elder_id)
+    if handled is not None:
+        query = query.filter(Alert.is_handled == handled)
+    rows = query.order_by(Alert.create_time.desc(), Alert.id.desc()).limit(limit).all()
+    return [_to_item(alert) for alert in rows]
+
+
+def get_alert_detail(db: Session, alert_id: int, elder_id: int) -> dict:
+    """告警详情: 基础信息 + 关联工单状态 + 处置人姓名。
+
+    404: 告警不存在; 403: 告警属于别的老人(防止跨老人查看)。
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail=f"告警 {alert_id} 不存在")
+    if alert.elder_id != elder_id:
+        raise HTTPException(status_code=403, detail="无权查看该告警")
+
+    order = db.query(WorkOrder).filter(WorkOrder.alert_id == alert.id).first()
+    handler = db.get(User, alert.handled_by) if alert.handled_by else None
+    elder = db.get(Elder, alert.elder_id)
+
+    item = _to_item(alert)
+    item.update(
+        {
+            "elder_name": elder.elder_name if elder else None,
+            "order_id": order.id if order else None,
+            "order_status": order.order_status if order else None,
+            # user 表没有姓名字段, 处置人姓名用账号名展示
+            "handled_by_name": handler.username if handler else None,
+        }
+    )
+    return item
+
+
 def list_alerts(db: Session, elder_id: int, limit: int = 50) -> list[dict]:
     """按时间倒序返回某位老人的告警(含截图可访问地址)。"""
     rows = (
