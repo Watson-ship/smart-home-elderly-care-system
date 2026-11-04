@@ -97,6 +97,51 @@ def create_sos(db: Session, elder_id: int, device_id: int | None = None) -> dict
     }
 
 
+# ==================== C同学补充：AI 告警生成 ====================
+def create_ai_alert(db: Session, elder_id: int, device_id: int, alert_type: str = "fall",
+                    image_path: str = None) -> Alert:
+    """
+    生成 AI 告警记录，并自动生成一条待派单工单（同一事务）。
+    """
+    elder = _get_elder(db, elder_id)  # 复用队友写的检查老人是否存在的函数
+
+    try:
+        alert = Alert(
+            elder_id=elder_id,
+            device_id=device_id,
+            alert_type=alert_type,
+            is_handled=0,
+            screenshot_path=image_path
+        )
+        db.add(alert)
+        db.flush()  # 拿到 alert.id
+
+        order = WorkOrder(
+            alert_id=alert.id,
+            elder_id=elder_id,
+            order_status="pending",
+        )
+        db.add(order)
+        db.commit()
+        db.refresh(alert)
+        db.refresh(order)
+    except Exception as exc:
+        db.rollback()  # 【关键】如果工单插入失败，把告警也撤销掉
+        print(f"[AI告警] 创建失败已回滚: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail="生成AI告警失败")
+
+    print(f"[AI告警] elder={elder.elder_name} alert={alert.id} work_order={order.id}", flush=True)
+
+    # 【关键】直接复用队友写好的推送逻辑，推给家属！
+    _notify_guardians(
+        db,
+        elder,
+        "AI跌倒告警",
+        f"AI 检测到 {elder.elder_name} 发生跌倒，工单 #{order.id} 已自动创建，请立即联系老人({elder.phone})！",
+    )
+
+    return alert
+
 def cancel_latest_sos(db: Session, elder_id: int, user_id: int | None = None) -> dict:
     """取消该老人最近一条未处置的 sos 告警。
 

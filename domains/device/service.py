@@ -174,20 +174,21 @@ def save_fall_screenshot(
 
     alert = None
     if device.elder_id is not None:
-        alert = Alert(
+        # 在文件顶部加上导入：from domains.alert.service import create_ai_alert
+        from domains.alert.service import create_ai_alert
+
+        # 计算相对路径
+        rel_path = (Path("stream") / safe_sn / filename).as_posix()
+
+        # 调用你写的函数，它不仅会插 Alert，还会生成工单，还会发通知！
+        alert = create_ai_alert(
+            db=db,
             elder_id=device.elder_id,
             device_id=device.id,
             alert_type="fall",
-            # 相对 static 的路径, 前端拼成 /static/{screenshot_path} 即可访问
-            screenshot_path=(Path("stream") / safe_sn / filename).as_posix(),
-            is_handled=0,
+            image_path=rel_path
         )
-        db.add(alert)
-        db.commit()
-        db.refresh(alert)
-
     return target, alert
-
 
 def _encode_frame_with_boxes(frame, detections, detector, quality: int = 85) -> bytes | None:
     """把一帧(画上检测框)编码成 jpg 字节。"""

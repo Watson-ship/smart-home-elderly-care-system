@@ -139,3 +139,11 @@ class FallMonitor:
     @property
     def scene_index(self) -> int:
         return self.machine.scene_index
+# ==================== C同学补充：Mock 假推理 ====================
+def mock_detect(image_path: str) -> dict:
+    """
+    这是纯假推理，供前端联调和测试使用。
+    """
+    print(f"[Mock AI] 正在分析图片: {image_path}")
+    # 强行返回跌倒
+    return {"is_fall": True, "confidence": 0.95, "model_version": "mock-v1"}
