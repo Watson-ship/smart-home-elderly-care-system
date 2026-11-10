@@ -14,7 +14,7 @@ Owner: Person A (阶段 2 核心联动)
       写工单失败就整体回滚, 不会留下一条没人处理的 SOS 告警。
     - 推送先走 infrastructure.push.notify(控制台 + 日志文件), 接 WebSocket 时只改 notify 内部。
 """
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -287,6 +287,62 @@ def get_screenshot_path(db: Session, alert_id: int, elder_id: int):
     if path is None:
         raise HTTPException(status_code=404, detail=f"告警 {alert_id} 的截图文件不存在")
     return path
+
+
+def get_alert_stats(db: Session, elder_id: int, days: int = 7) -> dict:
+    """近 N 天告警统计: 按类型、按日期聚合, 供家属首页卡片使用。
+
+    没有告警的日期也会出现在 by_date 里(数值为 0), 前端画图不用自己补轴。
+    """
+    end_day = date.today()
+    start_day = end_day - timedelta(days=days - 1)
+    start_dt = datetime.combine(start_day, time.min)
+
+    rows = db.query(Alert).filter(
+        Alert.elder_id == elder_id,
+        Alert.create_time >= start_dt
+    ).all()
+
+    by_date = {}
+    for offset in range(days):
+        day_key = (start_day + timedelta(days=offset)).strftime("%Y-%m-%d")
+        by_date[day_key] = {"date": day_key, "total": 0, "handled": 0, "unhandled": 0}
+
+    by_type = {}
+    total = handled = unhandled = 0
+    for alert in rows:
+        if alert.create_time is None:
+            continue
+        day_key = alert.create_time.strftime("%Y-%m-%d")
+        if day_key not in by_date:     # 兜底: 超出统计区间的记录不计入
+            continue
+
+        type_stat = by_type.setdefault(
+            alert.alert_type,
+            {"alert_type": alert.alert_type, "total": 0, "handled": 0, "unhandled": 0}
+        )
+        key = "handled" if alert.is_handled == 1 else "unhandled"
+
+        for stat in (by_date[day_key], type_stat):
+            stat["total"] += 1
+            stat[key] += 1
+        total += 1
+        if key == "handled":
+            handled += 1
+        else:
+            unhandled += 1
+
+    return {
+        "elder_id": elder_id,
+        "days": days,
+        "start_date": start_day.strftime("%Y-%m-%d"),
+        "end_date": end_day.strftime("%Y-%m-%d"),
+        "total": total,
+        "handled": handled,
+        "unhandled": unhandled,
+        "by_type": [by_type[name] for name in sorted(by_type)],
+        "by_date": [by_date[name] for name in sorted(by_date)],
+    }
 
 
 def list_alerts(db: Session, elder_id: int, limit: int = 50) -> list[dict]:

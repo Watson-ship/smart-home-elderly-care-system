@@ -1,28 +1,98 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from .model import MedicinePlan
 from models.medicine_record import MedicineRecord
-from .schema import MedicinePlanCreate, MedicinePlanUpdate, MedicinePlanSchema, MedicineRecordCreate, MedicineRecordSchema
+from .schema import (MedicinePlanCreate, MedicinePlanUpdate, MedicinePlanSchema,
+                    MedicineRecordCreate, MedicineRecordSchema)
 
 
-def get_medicine_plan_list(db: Session, elder_id: int):
-    """按elder_id查询用药计划，权限隔离"""
-    plan_list = db.query(MedicinePlan).filter(MedicinePlan.elder_id == elder_id).all()
-    res = []
-    for item in plan_list:
-        d = {
-            "id": item.id,
-            "elder_id": item.elder_id,
-            "medicine_name": item.medicine_name,
-            "take_time": item.take_time.strftime("%H:%M:%S") if item.take_time else None,
-            "cycle": item.cycle,
-            "status": item.status
-        }
-        res.append(MedicinePlanSchema(**d))
-    return res
+def _plan_dict(item: MedicinePlan) -> dict:
+    """用药计划 -> 响应字典(take_time 从 time 转回字符串)"""
+    return {
+        "id": item.id,
+        "elder_id": item.elder_id,
+        "medicine_name": item.medicine_name,
+        "take_time": item.take_time.strftime("%H:%M:%S") if item.take_time else None,
+        "cycle": item.cycle,
+        "status": item.status
+    }
+
+
+def get_medicine_plan_page(db: Session, elder_id: int, page: int = 1, size: int = 10,
+                          status: int | None = None):
+    """按elder_id分页查询用药计划，可按启停状态筛选，权限隔离"""
+    query = db.query(MedicinePlan).filter(MedicinePlan.elder_id == elder_id)
+    if status is not None:
+        query = query.filter(MedicinePlan.status == status)
+
+    total = query.count()
+    rows = (query.order_by(MedicinePlan.take_time.asc(), MedicinePlan.id.asc())
+            .offset((page - 1) * size).limit(size).all())
+
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": (total + size - 1) // size,
+        "items": [MedicinePlanSchema(**_plan_dict(item)) for item in rows]
+    }
+
+
+def get_medicine_stats(db: Session, elder_id: int, days: int = 7):
+    """近 N 天按时服药率：按天聚合 medicine_record，没有记录的日期补 0。"""
+    end_day = date.today()
+    start_day = end_day - timedelta(days=days - 1)
+
+    rows = db.query(MedicineRecord).filter(
+        MedicineRecord.elder_id == elder_id,
+        MedicineRecord.remind_date >= start_day,
+        MedicineRecord.remind_date <= end_day
+    ).all()
+
+    bucket = {}
+    for offset in range(days):
+        day = start_day + timedelta(days=offset)
+        bucket[day] = {"taken": 0, "untaken": 0}
+
+    total = taken = untaken = 0
+    for row in rows:
+        day_stat = bucket.get(row.remind_date)
+        if day_stat is None:      # 理论上不会出现, 兜底避免脏数据把统计带崩
+            continue
+        if row.take_result == "taken":
+            day_stat["taken"] += 1
+            taken += 1
+        else:
+            day_stat["untaken"] += 1
+            untaken += 1
+        total += 1
+
+    daily = []
+    for day in sorted(bucket):
+        stat = bucket[day]
+        day_total = stat["taken"] + stat["untaken"]
+        daily.append({
+            "date": day.strftime("%Y-%m-%d"),
+            "taken": stat["taken"],
+            "untaken": stat["untaken"],
+            "total": day_total,
+            "rate": round(stat["taken"] * 100 / day_total, 1) if day_total else 0.0
+        })
+
+    return {
+        "elder_id": elder_id,
+        "start_date": start_day.strftime("%Y-%m-%d"),
+        "end_date": end_day.strftime("%Y-%m-%d"),
+        "days": days,
+        "total": total,
+        "taken": taken,
+        "untaken": untaken,
+        "rate": round(taken * 100 / total, 1) if total else 0.0,
+        "daily": daily
+    }
 
 
 def create_medicine_plan(db: Session, elder_id: int, plan_in: MedicinePlanCreate):
