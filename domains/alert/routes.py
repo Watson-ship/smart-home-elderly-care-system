@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from db.session import get_current_user, get_db
 from domains.alert import service
-from domains.alert.schema import AlertDetail, AlertHandleResp, AlertItem, SosCancelResp, SosReq, SosResp
+from domains.alert.schema import (AlertDetail, AlertHandleResp, AlertItem, AlertStatsResp,
+                                  SosCancelResp, SosReq, SosResp)
 from schemas.common_schema import BaseResp, ok
 
 router = APIRouter(prefix="/api/alert", tags=["告警"])
@@ -104,6 +105,21 @@ def alert_list(
     elder_id = _require_elder_id(current_user)
     items = service.list_alerts_filtered(db, elder_id, handled=handled, limit=limit)
     return ok([AlertItem(**item) for item in items])
+
+
+@router.get("/stats", response_model=BaseResp[AlertStatsResp], summary="近N天告警统计(按类型/按日期)")
+def alert_stats(
+    days: int = Query(7, ge=1, le=90, description="统计天数, 默认近 7 天"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """家属首页卡片用: 按告警类型、按日期聚合。
+
+    注意: 该路由必须声明在 /{alert_id} 之前, 否则 stats 会被当成 alert_id 解析。
+    """
+    elder_id = _require_elder_id(current_user)
+    data = service.get_alert_stats(db, elder_id, days=days)
+    return ok(data)
 
 
 @router.get("/{alert_id}", response_model=BaseResp[AlertDetail], summary="告警详情(含工单状态/处置人)")

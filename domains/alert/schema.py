@@ -67,3 +67,35 @@ class AlertHandleResp(BaseModel):
     handled_by: int
     handled_by_name: Optional[str] = None
     handle_time: datetime
+
+
+# ---------------- 阶段 3: 告警统计 ----------------
+
+
+class AlertTypeStat(BaseModel):
+    """按告警类型聚合"""
+    alert_type: str = Field(description="fall跌倒 / static静止 / sos求助")
+    total: int
+    handled: int
+    unhandled: int
+
+
+class DailyAlertStat(BaseModel):
+    """按日期聚合"""
+    date: str = Field(description="日期 YYYY-MM-DD")
+    total: int
+    handled: int
+    unhandled: int
+
+
+class AlertStatsResp(BaseModel):
+    """家属首页卡片用: 按类型、按日期聚合"""
+    elder_id: int
+    days: int = Field(description="统计天数")
+    start_date: str = Field(description="统计起始日期 YYYY-MM-DD")
+    end_date: str = Field(description="统计结束日期 YYYY-MM-DD")
+    total: int = Field(description="告警总数")
+    handled: int = Field(description="已处置数")
+    unhandled: int = Field(description="未处置数")
+    by_type: list[AlertTypeStat] = Field(description="按类型聚合")
+    by_date: list[DailyAlertStat] = Field(description="按日期聚合, 无告警的日期也返回")
