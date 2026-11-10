@@ -1,0 +1,32 @@
+.card {
+    border: none;
+    border-radius: 10px;
+}
+.card-header {
+    border-bottom: 1px solid rgba(0,0,0,.125);
+}
+.order-card {
+    background: white;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border-left: 4px solid #0d6efd;
+}
+
+/* ---- 修复侧边栏样式 ---- */
+.nav-link {
+    color: #333;
+    border-radius: 5px;
+    margin-bottom: 8px;
+    padding: 10px 15px;
+    font-size: 15px; /* 字体调大 */
+    white-space: nowrap; /* 强制不换行 */
+    display: flex;
+    align-items: center;
+    gap: 10px; /* 图标和文字的间距 */
+}
+.nav-link:hover, .nav-link.active {
+    background-color: #e9ecef;
+    font-weight: bold;
+}
