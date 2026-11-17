@@ -69,6 +69,18 @@ class AlertHandleResp(BaseModel):
     handle_time: datetime
 
 
+# ---------------- 阶段 4: 告警列表分页 ----------------
+
+
+class AlertPage(BaseModel):
+    """告警分页结果(家属端告警中心用)"""
+    total: int = Field(description="符合条件的总条数")
+    page: int = Field(description="当前页码, 从 1 开始")
+    size: int = Field(description="每页条数")
+    pages: int = Field(description="总页数")
+    items: list[AlertItem] = Field(description="当前页数据")
+
+
 # ---------------- 阶段 3: 告警统计 ----------------
 
 

@@ -200,13 +200,22 @@ def create_medicine_record(db: Session, record_in: MedicineRecordCreate, elder_i
     return MedicineRecordSchema(**d)
 
 
-def get_medicine_record_list(db: Session, elder_id: int):
-    """查看服药记录，按日期倒序"""
-    record_list = db.query(MedicineRecord).filter(
-        MedicineRecord.elder_id == elder_id
-    ).order_by(MedicineRecord.remind_date.desc(), MedicineRecord.id.desc()).all()
-    res = []
-    for item in record_list:
+def get_medicine_record_page(db: Session, elder_id: int, page: int = 1, size: int = 20,
+                             start_date: date | None = None,
+                             end_date: date | None = None):
+    """按 elder_id 分页查询服药记录，可按 remind_date 日期区间筛选，权限隔离"""
+    query = db.query(MedicineRecord).filter(MedicineRecord.elder_id == elder_id)
+    if start_date is not None:
+        query = query.filter(MedicineRecord.remind_date >= start_date)
+    if end_date is not None:
+        query = query.filter(MedicineRecord.remind_date <= end_date)
+
+    total = query.count()
+    rows = (query.order_by(MedicineRecord.remind_date.desc(), MedicineRecord.id.desc())
+            .offset((page - 1) * size).limit(size).all())
+
+    items = []
+    for item in rows:
         d = {
             "id": item.id,
             "plan_id": item.plan_id,
@@ -215,5 +224,12 @@ def get_medicine_record_list(db: Session, elder_id: int):
             "take_result": item.take_result,
             "record_time": item.record_time.strftime("%Y-%m-%d %H:%M:%S") if item.record_time else None
         }
-        res.append(MedicineRecordSchema(**d))
-    return res
+        items.append(MedicineRecordSchema(**d))
+
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": (total + size - 1) // size,
+        "items": items
+    }

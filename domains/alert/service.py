@@ -201,15 +201,28 @@ def _to_item(alert: Alert) -> dict:
     }
 
 
-def list_alerts_filtered(
-    db: Session, elder_id: int, handled: int | None = None, limit: int = 50
-) -> list[dict]:
-    """按 elder_id 倒序返回告警; handled=0/1 时只返回未处置/已处置的。"""
+def get_alert_page(
+    db: Session, elder_id: int, page: int = 1, size: int = 10, handled: int | None = None
+) -> dict:
+    """按 elder_id 分页返回告警(权限隔离); handled=0/1 时只返回未处置/已处置的。"""
     query = db.query(Alert).filter(Alert.elder_id == elder_id)
     if handled is not None:
         query = query.filter(Alert.is_handled == handled)
-    rows = query.order_by(Alert.create_time.desc(), Alert.id.desc()).limit(limit).all()
-    return [_to_item(alert) for alert in rows]
+
+    total = query.count()
+    rows = (
+        query.order_by(Alert.create_time.desc(), Alert.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "pages": (total + size - 1) // size,
+        "items": [_to_item(alert) for alert in rows],
+    }
 
 
 def get_alert_detail(db: Session, alert_id: int, elder_id: int) -> dict:

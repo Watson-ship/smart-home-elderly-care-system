@@ -49,6 +49,15 @@ class MedicinePlanPage(BaseModel):
     items: list[MedicinePlanSchema] = Field(description="当前页数据")
 
 
+class MedicineRecordPage(BaseModel):
+    """服药记录分页结果(家属端用药日历用)"""
+    total: int = Field(description="符合条件的总条数")
+    page: int = Field(description="当前页码, 从 1 开始")
+    size: int = Field(description="每页条数")
+    pages: int = Field(description="总页数")
+    items: list[MedicineRecordSchema] = Field(description="当前页数据")
+
+
 class DailyTakenStat(BaseModel):
     """某一天的服药情况"""
     date: str = Field(description="日期 YYYY-MM-DD")
