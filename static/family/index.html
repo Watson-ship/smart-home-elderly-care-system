@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家属端 - 居家老人监测系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="loginMask" class="login-mask">
+    <div class="login-card">
+        <h2>家属端登录</h2>
+        <p class="sub">居家老人监测系统 · Person B</p>
+        <label class="field">账号
+            <input id="loginUsername" type="text" placeholder="如 fam_zhang" autocomplete="username">
+        </label>
+        <label class="field">密码
+            <input id="loginPassword" type="password" placeholder="默认 123456" autocomplete="current-password">
+        </label>
+        <button class="btn primary" id="loginBtn">登录</button>
+        <div class="err" id="loginErr"></div>
+    </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="app" class="hidden">
+    <div class="topbar">
+        <h1>家属端 · 居家老人监测</h1>
+        <div class="row">
+            <span class="who" id="whoami">未登录</span>
+            <button class="btn small" id="logoutBtn">退出</button>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="sidebar">
+            <button data-tab="video" class="active">实时视频</button>
+            <button data-tab="alert">告警中心</button>
+            <button data-tab="medicine">用药管理</button>
+            <button data-tab="bind">绑定管理</button>
+        </div>
+
+        <div class="content">
+
+            <!-- ---------- 实时视频 ---------- -->
+            <section id="tab-video">
+                <div class="card">
+                    <h2>实时视频</h2>
+                    <div class="row" style="margin-bottom:12px">
+                        <input id="videoSn" placeholder="设备序列号，如 CAM-SN-20240101-001" style="flex:1;min-width:260px">
+                        <button class="btn primary" id="videoStart">开始观看</button>
+                        <button class="btn" id="videoStop">停止刷新</button>
+                        <span id="videoStatus" class="hint"><span class="status-dot"></span>未开始</span>
+                    </div>
+                    <div class="video-box">
+                        <img id="videoImg" class="hidden" alt="摄像头画面">
+                        <div id="videoPlaceholder" class="placeholder">
+                            输入设备序列号后点击「开始观看」<br>
+                            每 5 秒自动刷新一帧（跌倒也截图）
+                        </div>
+                    </div>
+                    <p class="hint" style="margin-top:10px">
+                        说明：当前后端没有「设备列表 / 在线状态」接口，序列号需手动填写。
+                        有画面即表示该设备在推流；无画面说明该设备暂未上传截图。
+                    </p>
+                </div>
+            </section>
+
+            <!-- ---------- 告警中心 ---------- -->
+            <section id="tab-alert" class="hidden">
+                <div class="card">
+                    <div class="row" style="margin-bottom:12px">
+                        <h2 style="margin:0">告警中心</h2>
+                        <div class="spacer"></div>
+                        <select id="alertFilter">
+                            <option value="">全部告警</option>
+                            <option value="0">仅未处置</option>
+                            <option value="1">仅已处置</option>
+                        </select>
+                        <select id="alertSize">
+                            <option value="10">每页 10 条</option>
+                            <option value="5">每页 5 条</option>
+                            <option value="20">每页 20 条</option>
+                        </select>
+                        <button class="btn" id="alertRefresh">刷新</button>
+                    </div>
+                    <table>
+                        <thead>
+                        <tr>
+                            <th style="width:64px">ID</th>
+                            <th style="width:92px">截图</th>
+                            <th>类型</th>
+                            <th>发生时间</th>
+                            <th style="width:88px">状态</th>
+                            <th style="width:190px">操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="alertBody"></tbody>
+                    </table>
+                    <div class="pager">
+                        <button class="btn small" id="alertPrev">上一页</button>
+                        <span id="alertPageInfo">-</span>
+                        <button class="btn small" id="alertNext">下一页</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ---------- 用药管理 ---------- -->
+            <section id="tab-medicine" class="hidden">
+                <div class="card">
+                    <div class="row" style="margin-bottom:12px">
+                        <h2 style="margin:0">用药计划</h2>
+                        <div class="spacer"></div>
+                        <select id="planStatus">
+                            <option value="">全部</option>
+                            <option value="1">仅启用</option>
+                            <option value="0">仅停用</option>
+                        </select>
+                        <button class="btn primary" id="planAdd">新增计划</button>
+                        <button class="btn" id="planRefresh">刷新</button>
+                    </div>
+                    <table>
+                        <thead>
+                        <tr>
+                            <th style="width:64px">ID</th>
+                            <th>药品名称</th>
+                            <th style="width:110px">服药时间</th>
+                            <th style="width:90px">周期</th>
+                            <th style="width:80px">状态</th>
+                            <th style="width:150px">操作</th>
+                        </tr>
+                        </thead>
+                        <tbody id="planBody"></tbody>
+                    </table>
+                    <div class="pager">
+                        <button class="btn small" id="planPrev">上一页</button>
+                        <span id="planPageInfo">-</span>
+                        <button class="btn small" id="planNext">下一页</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="row" style="margin-bottom:12px">
+                        <h2 style="margin:0">服药记录</h2>
+                        <div class="spacer"></div>
+                        <input type="date" id="recordStart">
+                        <span class="hint">至</span>
+                        <input type="date" id="recordEnd">
+                        <button class="btn" id="recordSearch">查询</button>
+                    </div>
+                    <div class="bars" id="statsBars"></div>
+                    <p class="hint" id="statsText" style="margin:6px 0 14px">近 7 天按时服药率</p>
+
+                    <table>
+                        <thead>
+                        <tr>
+                            <th style="width:64px">ID</th>
+                            <th>计划 ID</th>
+                            <th>提醒日期</th>
+                            <th>结果</th>
+                            <th>确认时间</th>
+                        </tr>
+                        </thead>
+                        <tbody id="recordBody"></tbody>
+                    </table>
+                    <div class="pager">
+                        <button class="btn small" id="recordPrev">上一页</button>
+                        <span id="recordPageInfo">-</span>
+                        <button class="btn small" id="recordNext">下一页</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ---------- 绑定管理 ---------- -->
+            <section id="tab-bind" class="hidden">
+                <div class="card">
+                    <h2>绑定管理</h2>
+                    <p class="hint" style="margin-bottom:14px">
+                        选择老人 + 填写摄像头序列号，提交后该设备就归属这位老人。
+                    </p>
+                    <div class="row">
+                        <label class="field" style="flex:1;min-width:240px">老人
+                            <select id="bindElder"></select>
+                        </label>
+                        <label class="field" style="flex:1;min-width:240px">摄像头序列号
+                            <input id="bindSn" placeholder="如 CAM-SN-20240101-001">
+                        </label>
+                    </div>
+                    <button class="btn primary" id="bindBtn">提交绑定</button>
+                    <div class="hint" id="bindResult" style="margin-top:12px"></div>
+                    <p class="hint" style="margin-top:18px">
+                        说明：后端暂无「设备列表」接口，所以序列号需要手动输入；
+                        绑定接口成功后返回设备名与所属老人。
+                    </p>
+                </div>
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<!-- ============ 告警详情弹窗 ============ -->
+<div class="mask" id="alertModal">
+    <div class="modal">
+        <h3>告警详情</h3>
+        <img id="detailShot" class="shot hidden" alt="告警截图">
+        <div class="kv" id="detailKv"></div>
+        <div class="modal-actions">
+            <button class="btn" id="detailClose">关闭</button>
+            <button class="btn danger" id="detailHandle">标记已处置</button>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 用药计划弹窗 ============ -->
+<div class="mask" id="planModal">
+    <div class="modal">
+        <h3 id="planModalTitle">新增用药计划</h3>
+        <label class="field">药品名称
+            <input id="planName" maxlength="100" placeholder="如 硝苯地平缓释片">
+        </label>
+        <label class="field">服药时间
+            <input id="planTime" type="time">
+        </label>
+        <label class="field">周期
+            <select id="planCycle">
+                <option value="daily">每天</option>
+                <option value="two_day">隔天</option>
+            </select>
+        </label>
+        <label class="field" id="planStatusWrap">状态
+            <select id="planStatusField">
+                <option value="1">启用</option>
+                <option value="0">停用</option>
+            </select>
+        </label>
+        <div class="modal-actions">
+            <button class="btn" id="planCancel">取消</button>
+            <button class="btn primary" id="planSave">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
