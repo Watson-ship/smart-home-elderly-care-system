@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from db.session import get_current_user, get_db
 from domains.alert import service
-from domains.alert.schema import (AlertDetail, AlertHandleResp, AlertItem, AlertStatsResp,
-                                  SosCancelResp, SosReq, SosResp)
+from domains.alert.schema import (AlertDetail, AlertHandleResp, AlertItem, AlertPage,
+                                  AlertStatsResp, SosCancelResp, SosReq, SosResp)
 from schemas.common_schema import BaseResp, ok
 
 router = APIRouter(prefix="/api/alert", tags=["告警"])
@@ -91,10 +91,11 @@ def my_alerts(
 # ---------------- Person B 追加: 告警列表 / 告警详情 ----------------
 
 
-@router.get("", response_model=BaseResp[list[AlertItem]], summary="告警列表(可按处置状态过滤)")
+@router.get("", response_model=BaseResp[AlertPage], summary="告警列表(分页/按处置状态筛选)")
 def alert_list(
+    page: int = Query(1, ge=1, description="页码, 从 1 开始"),
+    size: int = Query(10, ge=1, le=100, description="每页条数, 最大 100"),
     handled: int | None = Query(None, ge=0, le=1, description="0只看未处置, 1只看已处置, 不传看全部"),
-    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -103,8 +104,8 @@ def alert_list(
     截图字段返回 screenshot_url, 前端直接 <img src> 即可。
     """
     elder_id = _require_elder_id(current_user)
-    items = service.list_alerts_filtered(db, elder_id, handled=handled, limit=limit)
-    return ok([AlertItem(**item) for item in items])
+    data = service.get_alert_page(db, elder_id, page=page, size=size, handled=handled)
+    return ok(data)
 
 
 @router.get("/stats", response_model=BaseResp[AlertStatsResp], summary="近N天告警统计(按类型/按日期)")

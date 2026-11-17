@@ -4,19 +4,21 @@
 - DELETE /api/medicine/plans/{id}     家属删除用药计划（先删该计划的服药记录）
 - GET    /api/medicine/plans          查看用药计划列表（分页 + 状态筛选）
 - POST   /api/medicine/record         老人确认已服/未服
-- GET    /api/medicine/record         查看服药记录
+- GET    /api/medicine/record         查看服药记录（分页 + 日期区间筛选）
 - GET    /api/medicine/records/stats  近 N 天按时服药率统计
 """
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from db.session import get_db, get_current_user
 from schemas.common_schema import BaseResp, ok
 from .service import (get_medicine_plan_page, create_medicine_plan, update_medicine_plan,
-                      delete_medicine_plan, create_medicine_record, get_medicine_record_list,
+                      delete_medicine_plan, create_medicine_record, get_medicine_record_page,
                       get_medicine_stats)
 from .schema import (MedicinePlanSchema, MedicinePlanCreate, MedicinePlanUpdate, MedicineRecordCreate,
-                     MedicineRecordSchema, MedicinePlanPage, MedicineStatsResp)
+                     MedicineRecordSchema, MedicinePlanPage, MedicineRecordPage, MedicineStatsResp)
 
 router = APIRouter(prefix="/api/medicine", tags=["用药"])
 
@@ -102,8 +104,12 @@ def create_record(
     return ok(data=data)
 
 
-@router.get("/record", response_model=BaseResp[list[MedicineRecordSchema]], summary="查看服药记录")
+@router.get("/record", response_model=BaseResp[MedicineRecordPage], summary="查看服药记录(分页/日期区间)")
 def get_record_list(
+    page: int = Query(1, ge=1, description="页码, 从 1 开始"),
+    size: int = Query(20, ge=1, le=100, description="每页条数, 最大 100"),
+    start_date: date | None = Query(None, description="起始日期 YYYY-MM-DD, 不传不限"),
+    end_date: date | None = Query(None, description="结束日期 YYYY-MM-DD, 不传不限"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -112,8 +118,12 @@ def get_record_list(
         raise HTTPException(status_code=403, detail="仅家属或老人本人可查看服药记录")
     if not current_user.elder_id:
         raise HTTPException(status_code=400, detail="当前账号未绑定老人，无法查询服药记录")
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="起始日期不能晚于结束日期")
+
     elder_id = current_user.elder_id
-    data = get_medicine_record_list(db, elder_id)
+    data = get_medicine_record_page(db, elder_id, page=page, size=size,
+                                    start_date=start_date, end_date=end_date)
     return ok(data=data)
 
 
