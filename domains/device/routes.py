@@ -11,6 +11,8 @@ Owner 划分 (两人共用本文件, 不要动对方的部分):
         POST /api/device/detect/latest  不用重传: 直接检测该设备最新上传的那段视频
         POST /api/device/bind        绑定设备与老人
         GET  /api/device/stream/{sn} 家属端查看最新跌倒截图(FileResponse, 直接给 img src)
+        POST /api/device/frame       设备推一帧实时画面(阶段 3, 只进内存, 不建告警)
+        GET  /api/device/live/{sn}   家属端看实时画面(MJPEG 推流, 直接给 img src)
     Person B (家属方向) —— 阶段 2 追加
         GET  /api/device                 家属查看自己老人绑定的摄像头列表
 
@@ -24,22 +26,28 @@ infrastructure/ai/inference.py 的 FallMonitor 边录边判, 只有确认跌倒�
 """
 from pathlib import Path
 import time
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from db.session import get_db
-from domains.device import service
+from db.session import get_current_user, get_db
+from domains.device import live, service
+from models import Elder
 from schemas.common_schema import BaseResp, ok
 from schemas.device_schema import (
     BindReq,
     BindResp,
     DetectResp,
+    DeviceItem,
     DeviceRegisterReq,
     DeviceRegisterResp,
+    DeviceRenameReq,
+    DeviceUnbindReq,
     DetectedShot,
+    FrameUploadResp,
     HeartbeatReq,
     HeartbeatResp,
     StreamUploadResp,
@@ -63,7 +71,9 @@ def register(req: DeviceRegisterReq, db: Session = Depends(get_db)):
     重复注册同一个 SN 返回 400。
     """
     try:
-        device = service.register_device(db, req.device_sn, req.device_name)
+        device, generated = service.register_device(
+            db, req.device_sn, req.device_name, req.hardware_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -73,6 +83,7 @@ def register(req: DeviceRegisterReq, db: Session = Depends(get_db)):
             device_name=device.device_name,
             status=device.status,
             elder_id=device.elder_id,
+            generated=generated,
         )
     )
 
@@ -433,6 +444,84 @@ def get_stream_snapshot(device_sn: str, name: str | None = None):
     return FileResponse(target, media_type="image/jpeg", filename=target.name)
 
 
+@router.post(
+    "/frame",
+    response_model=BaseResp[FrameUploadResp],
+    summary="设备上传一帧实时画面(阶段3, 不建告警)",
+)
+async def upload_frame(
+    device_sn: str = Form(..., description="设备序列号"),
+    file: UploadFile = File(..., description="当前这一帧的截图(jpg)"),
+    db: Session = Depends(get_db),
+):
+    """摄像端每 N 秒(默认 2 秒)推一帧过来, 用于家属端看"动起来"的画面。
+
+    和 /stream 的区别(重要):
+        /stream  跌倒截图 -> 落盘 static/stream/ + 写 alert 告警
+        /frame   实时画面 -> 只放内存最新一帧, **不落盘、不建告警、不写库**
+        实时画面每 2 秒来一次, 走 /stream 会每 2 秒建一条告警, 所以必须分开。
+
+    服务端只保留每台设备最后一帧, 15 秒没有新帧就视为断流,
+    此时 /live/{sn} 的连接自动结束(前端 <img> 会显示占位图)。
+    """
+    data = await file.read()
+
+    if not data:
+        raise HTTPException(status_code=400, detail="上传内容为空")
+    if len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"单帧过大, 上限 {MAX_IMAGE_SIZE // 1024 // 1024} MB",
+        )
+    # 只认图片魔数, 挡掉误传的任意文件(不落盘, 但也没必要把内存塞满垃圾)
+    if not (data.startswith(b"\xff\xd8") or data.startswith(b"\x89PNG")):
+        raise HTTPException(status_code=400, detail="不是有效的 jpg/png 图片")
+
+    if service.verify_device(db, device_sn) is None:
+        raise HTTPException(status_code=404, detail=f"设备 {device_sn} 未注册, 请先调 /register")
+
+    live.publish(device_sn, data)
+    return ok(
+        FrameUploadResp(
+            device_sn=device_sn,
+            size=len(data),
+            viewers=live.viewer_count(device_sn),
+            server_time=datetime.now(),
+        )
+    )
+
+
+@router.get("/live/{device_sn}", summary="家属端实时画面(MJPEG 推流)")
+def live_stream(device_sn: str):
+    """把设备推来的帧拼成 MJPEG 流, 浏览器里一个 <img> 就能看到会动的画面。
+
+    用法(前端/演示页, 不需要 token, 和 /stream/{sn} 一致):
+        <img src="/api/device/live/CAM-PC-001">
+
+    为什么是 multipart/x-mixed-replace:
+        这是浏览器原生的"多帧图片流"格式, <img> 标签直接支持,
+        不需要 WebRTC/HLS, 也不需要额外的 JS 播放器。
+
+    设备没在推流 / 断流超过 15 秒时: 有历史帧就继续推最后一帧直到过期;
+    一帧都没有则直接返回 404, 前端把 <img> 换成占位图即可。
+    """
+    safe_sn = "".join(ch for ch in device_sn if ch.isalnum() or ch in "-_")
+    if not safe_sn:
+        raise HTTPException(status_code=400, detail="设备序列号不合法")
+
+    if live.latest(safe_sn) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"设备 {device_sn} 当前没有推流(先运行 scripts/camera_client.py --sn {device_sn})",
+        )
+
+    return StreamingResponse(
+        live.mjpeg_chunks(safe_sn),
+        media_type=f"multipart/x-mixed-replace; boundary={live.BOUNDARY}",
+        headers={"Cache-Control": "no-cache", "Connection": "close"},
+    )
+
+
 @router.post("/bind", response_model=BaseResp[BindResp], summary="绑定设备与老人")
 def bind(req: BindReq, db: Session = Depends(get_db)):
     """家属把摄像头绑定到老人: 更新 device.elder_id。
@@ -440,7 +529,7 @@ def bind(req: BindReq, db: Session = Depends(get_db)):
     阶段 1 暂不校验登录身份, 阶段 2 会改成"只能绑定自己家的老人"。
     """
     try:
-        device = service.bind_device(db, req.device_sn, req.elder_id)
+        device = service.bind_device(db, req.device_sn, req.elder_id, req.device_name)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -450,4 +539,99 @@ def bind(req: BindReq, db: Session = Depends(get_db)):
             device_name=device.device_name,
             elder_id=device.elder_id,
         )
+    )
+
+
+def _visible_elder_id(current_user) -> int | None:
+    """设备列表/解绑的可见范围: 社康看全部, 老人/家属只看自己绑定的老人。"""
+    if current_user.role == "social":
+        return None
+    if current_user.elder_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前账号({current_user.role})未绑定老人, 无法查看设备",
+        )
+    return current_user.elder_id
+
+
+@router.get("/list", response_model=BaseResp[list[DeviceItem]], summary="设备列表(家属/社康)")
+def list_devices(
+    bound: bool | None = Query(None, description="true=已绑定 false=待绑定 不传=全部"),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """家属只看自己老人的设备, 社康看全部; 带在线状态, 方便前端显示。
+
+    待绑定(bound=false)是全局的: 设备刚启动时还没归属任何老人,
+    家属需要在列表里挑一台并起名字。
+    """
+    elder_id = _visible_elder_id(current_user)
+    devices = service.list_devices(db, elder_id, bound)
+    names = {e.id: e.elder_name for e in db.query(Elder).all()}
+    items = [
+        DeviceItem(
+            device_sn=d.device_sn,
+            device_name=d.device_name,
+            elder_id=d.elder_id,
+            elder_name=names.get(d.elder_id),
+            status=d.status,
+            last_online_time=d.last_online_time,
+        )
+        for d in devices
+    ]
+    return ok(items)
+
+
+@router.post("/rename", response_model=BaseResp[DeviceItem], summary="给设备改昵称")
+def rename(
+    req: DeviceRenameReq,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """家属把设备改成好记的名字(客厅/卧室), 便于老人和家属辨认。"""
+    visible = _visible_elder_id(current_user)
+    device = service.verify_device(db, req.device_sn)
+    if device is None:
+        raise HTTPException(status_code=404, detail=f"设备 {req.device_sn} 不存在")
+    if visible is not None and device.elder_id != visible:
+        raise HTTPException(status_code=403, detail="无权修改该设备")
+
+    device = service.rename_device(db, req.device_sn, req.device_name)
+    return ok(
+        DeviceItem(
+            device_sn=device.device_sn,
+            device_name=device.device_name,
+            elder_id=device.elder_id,
+            status=device.status,
+            last_online_time=device.last_online_time,
+        ),
+        msg="已改名",
+    )
+
+
+@router.post("/unbind", response_model=BaseResp[DeviceItem], summary="解绑设备与老人")
+def unbind(
+    req: DeviceUnbindReq,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """解除绑定, 设备本身保留(之后可以再绑给别的老人)。"""
+    visible = _visible_elder_id(current_user)
+    device = service.verify_device(db, req.device_sn)
+    if device is None:
+        raise HTTPException(status_code=404, detail=f"设备 {req.device_sn} 不存在")
+    if visible is not None and device.elder_id != visible:
+        raise HTTPException(status_code=403, detail="无权解绑该设备")
+
+    device = service.unbind_device(db, req.device_sn)
+    return ok(
+        DeviceItem(
+            device_sn=device.device_sn,
+            device_name=device.device_name,
+            elder_id=None,
+            elder_name=None,
+            status=device.status,
+            last_online_time=device.last_online_time,
+        ),
+        msg="已解绑",
     )

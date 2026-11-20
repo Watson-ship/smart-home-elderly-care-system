@@ -12,8 +12,15 @@ from pydantic import BaseModel, Field
 
 class DeviceRegisterReq(BaseModel):
     """手动注册设备请求"""
-    device_sn: str = Field(..., min_length=1, max_length=64, description="设备序列号")
+    device_sn: Optional[str] = Field(
+        None, min_length=1, max_length=64,
+        description="设备序列号; 留空则由服务端自动生成(推荐)",
+    )
     device_name: str = Field(..., min_length=1, max_length=100, description="设备名称, 如 客厅摄像头")
+    hardware_id: Optional[str] = Field(
+        None, max_length=128,
+        description="设备硬件指纹; 同一台设备重复注册时直接返回原编号, 不会产生多个序号",
+    )
 
 
 class DeviceRegisterResp(BaseModel):
@@ -22,6 +29,22 @@ class DeviceRegisterResp(BaseModel):
     device_name: str
     status: str
     elder_id: Optional[int] = None
+    generated: bool = Field(False, description="编号是否为服务端自动生成")
+
+
+class DeviceItem(BaseModel):
+    """设备列表里的一台设备"""
+    device_sn: str
+    device_name: str
+    elder_id: Optional[int] = None
+    elder_name: Optional[str] = None
+    status: str
+    last_online_time: Optional[datetime] = None
+
+
+class DeviceUnbindReq(BaseModel):
+    """解绑设备"""
+    device_sn: str = Field(..., min_length=1, max_length=64, description="设备序列号")
 
 
 class HeartbeatReq(BaseModel):
@@ -57,6 +80,14 @@ class StreamUploadResp(BaseModel):
     elder_id: Optional[int] = None
 
 
+class FrameUploadResp(BaseModel):
+    """设备上传一帧实时画面响应(只进内存, 不落盘、不建告警)"""
+    device_sn: str
+    size: int
+    viewers: int = Field(0, description="当前正在看这台设备实时画面的人数")
+    server_time: datetime = Field(..., description="服务端收到这一帧的时间")
+
+
 class DetectedShot(BaseModel):
     """离线检测视频时截下来的一个跌倒帧"""
     event_id: str
@@ -84,8 +115,18 @@ class DetectResp(BaseModel):
 
 class BindReq(BaseModel):
     """绑定设备与老人"""
-    device_sn: str = Field(..., min_length=1, max_length=64, description="设备序列号")
+    device_sn: str = Field(..., min_length=1, max_length=64, description="设备序列号(内部编号, 由设备端上报)")
     elder_id: int = Field(..., gt=0, description="要绑定的老人 id")
+    device_name: Optional[str] = Field(
+        None, min_length=1, max_length=100,
+        description="家属给设备起的昵称, 如 客厅 / 卧室; 不填保留原名",
+    )
+
+
+class DeviceRenameReq(BaseModel):
+    """给设备改昵称"""
+    device_sn: str = Field(..., min_length=1, max_length=64, description="设备序列号(内部编号)")
+    device_name: str = Field(..., min_length=1, max_length=100, description="新昵称, 如 客厅")
 
 
 class BindResp(BaseModel):

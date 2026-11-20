@@ -9,6 +9,7 @@ class Device(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_sn = Column(String(64), nullable=False, unique=True, comment="设备序列号(上报身份标识)")
+    hardware_id = Column(String(128), unique=True, comment="硬件指纹(同一台设备重复注册时复用同一个编号)")
     device_name = Column(String(100), nullable=False, comment="设备名称")
     elder_id = Column(Integer, comment="逻辑外键 elder.id: 绑定的老人")
     status = Column(Enum("online", "offline"), nullable=False, default="offline", comment="在线状态")

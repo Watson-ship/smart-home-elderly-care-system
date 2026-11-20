@@ -15,8 +15,10 @@ Owner 划分:
 from datetime import datetime
 from pathlib import Path
 import queue
+import secrets
 import threading
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models import Alert, Device, Elder
@@ -39,26 +41,62 @@ def verify_device(db: Session, device_sn: str) -> Device | None:
     return db.query(Device).filter(Device.device_sn == device_sn).first()
 
 
-def register_device(db: Session, device_sn: str, device_name: str) -> Device:
-    """手动注册设备: 先登记 SN 和设备名, 设备之后才能接入。
+def generate_device_sn(db: Session) -> str:
+    """生成一个不重复的设备编号, 如 CAM-20261120-7F3A。"""
+    for _ in range(20):
+        sn = f"CAM-{datetime.now():%Y%m%d}-{secrets.token_hex(2).upper()}"
+        if verify_device(db, sn) is None:
+            return sn
+    raise ValueError("自动生成设备编号失败, 请稍后重试")
 
-    与自动注册的区别: 只有登记过的 SN 才允许心跳和上传画面,
-    避免任何陌生设备随意写入数据库。注册后状态为 offline,
-    等设备第一次心跳成功才会变成 online。
+
+def register_device(
+    db: Session,
+    device_sn: str | None,
+    device_name: str,
+    hardware_id: str | None = None,
+) -> tuple[Device, bool]:
+    """注册设备, 返回 (设备, 编号是否为本次自动生成)。
+
+    规则:
+        - 同一个硬件指纹重复注册: 直接返回已有的那台设备, 不会产生新编号
+        - 传了编号且已存在: 报错(兼容旧调用方)
+        - 没传编号: 服务端自动生成一个全局唯一编号
+    注册后状态为 offline, 第一次心跳成功才会变成 online。
     """
-    if verify_device(db, device_sn) is not None:
-        raise ValueError(f"设备 {device_sn} 已注册, 无需重复注册")
+    if hardware_id:
+        same_machine = db.query(Device).filter(Device.hardware_id == hardware_id).first()
+        if same_machine is not None:
+            return same_machine, False
+
+    generated = False
+    if device_sn:
+        if verify_device(db, device_sn) is not None:
+            raise ValueError(f"设备 {device_sn} 已注册, 无需重复注册")
+    else:
+        device_sn = generate_device_sn(db)
+        generated = True
 
     device = Device(
         device_sn=device_sn,
         device_name=device_name,
+        hardware_id=hardware_id,
         status="offline",
         last_online_time=None,
     )
     db.add(device)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发注册同一硬件/同一编号时, 数据库唯一约束兜底
+        db.rollback()
+        if hardware_id:
+            same_machine = db.query(Device).filter(Device.hardware_id == hardware_id).first()
+            if same_machine is not None:
+                return same_machine, False
+        raise ValueError(f"设备 {device_sn} 已注册, 无需重复注册")
     db.refresh(device)
-    return device
+    return device, generated
 
 
 def heartbeat(db: Session, device_sn: str) -> Device:
@@ -384,8 +422,13 @@ def _detect_worker() -> None:
             _detect_queue.task_done()
 
 
-def bind_device(db: Session, device_sn: str, elder_id: int) -> Device:
-    """把设备和老人绑定 (更新 device.elder_id)。
+def bind_device(
+    db: Session,
+    device_sn: str,
+    elder_id: int,
+    device_name: str | None = None,
+) -> Device:
+    """把设备和老人绑定 (更新 device.elder_id), 可顺便设置家属起的昵称。
 
     设备和老人都不存在时抛 LookupError, 由路由层转成 404。
     """
@@ -397,6 +440,55 @@ def bind_device(db: Session, device_sn: str, elder_id: int) -> Device:
         raise LookupError(f"老人 {elder_id} 不存在")
 
     device.elder_id = elder_id
+    if device_name:
+        device.device_name = device_name
     db.commit()
     db.refresh(device)
     return device
+
+
+def rename_device(db: Session, device_sn: str, device_name: str) -> Device:
+    """给设备改昵称(客厅/卧室), 不影响绑定关系。"""
+    device = verify_device(db, device_sn)
+    if device is None:
+        raise LookupError(f"设备 {device_sn} 不存在")
+
+    device.device_name = device_name
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+def unbind_device(db: Session, device_sn: str) -> Device:
+    """解除设备与老人的绑定(设备本身保留, 状态不变)。
+
+    设备不存在时抛 LookupError, 由路由层转成 404。
+    """
+    device = verify_device(db, device_sn)
+    if device is None:
+        raise LookupError(f"设备 {device_sn} 不存在")
+
+    device.elder_id = None
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+def list_devices(
+    db: Session,
+    elder_id: int | None = None,
+    bound: bool | None = None,
+) -> list[Device]:
+    """设备列表。
+
+    elder_id 为 None 表示全部(社康视角); bound=True 只看已绑定,
+    bound=False 只看待绑定(此时忽略 elder_id, 因为还没归属任何老人)。
+    """
+    query = db.query(Device)
+    if bound is True:
+        query = query.filter(Device.elder_id.isnot(None))
+    elif bound is False:
+        query = query.filter(Device.elder_id.is_(None))
+    if elder_id is not None and bound is not False:
+        query = query.filter(Device.elder_id == elder_id)
+    return query.order_by(Device.id.desc()).all()

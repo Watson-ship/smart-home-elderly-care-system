@@ -18,6 +18,28 @@ from db.session import init_session
 from schemas.common_schema import BaseResp, HealthResp, ok
 
 
+def _upgrade_device_table(engine) -> None:
+    """轻量升级老数据库: create_all 只建新表, 不会给已有表加列。
+
+    这里补 device.hardware_id(硬件指纹), 避免队友 pull 后还要手动改表。
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "device" not in inspector.get_table_names():
+        return
+    if "hardware_id" in {c["name"] for c in inspector.get_columns("device")}:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE device ADD COLUMN hardware_id VARCHAR(128) NULL"))
+        try:
+            conn.execute(text("CREATE UNIQUE INDEX ux_device_hardware_id ON device (hardware_id)"))
+        except Exception:
+            pass  # 索引已存在时忽略
+    print("[启动] device 表已自动补列: hardware_id")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI 生命周期: 启动时连库建表, 空表自动插种子, 关闭时清理。"""
@@ -35,6 +57,7 @@ async def lifespan(app: FastAPI):
     from db.session import engine, SessionLocal
 
     Base.metadata.create_all(engine)  # 首次运行自动建表(也可手动执行 sql/init.sql)
+    _upgrade_device_table(engine)     # 老库补新列(硬件指纹)
     print(f"[启动] 数据库连接成功: {settings.DATABASE_URL}")
     print(f"[启动] 已自动建表, 共 {len(Base.metadata.tables)} 张")
 
@@ -126,33 +149,55 @@ def root():
             "health": "/health",
             "auth": "/api/auth/login",
             "device": "/api/device/heartbeat",
+            "device_page": "/static/device/camera.html",
+            "family_page": "/static/family/index.html",
+            "elder_page": "/static/elder/login.html",
+            "social_page": "/static/social/index.html",
         },
         msg="服务已启动, 接口文档请打开 /docs",
     )
 
 
-def _port_available(port: int) -> bool:
-    """试探端口能不能绑定(不设 SO_REUSEADDR, 避免 Windows 上误判为可用)。"""
+def _port_available(port: int, host: str = "0.0.0.0") -> bool:
+    """试探端口能不能绑定(按 uvicorn 实际要监听的地址试, 避免误判)。
+
+    注意要试 0.0.0.0 而不是 127.0.0.1: 别的进程占了 0.0.0.0:5000 时,
+    Windows 上绑 127.0.0.1:5000 仍可能成功, 结果 uvicorn 启动时才报 10048。
+    """
     import socket
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
-            s.bind(("127.0.0.1", port))
+            s.bind((host, port))
             return True
         except OSError:
             return False
 
 
-def _pick_port(preferred: int, span: int = 20) -> int:
+def _pick_port(preferred: int, span: int = 20, host: str = "0.0.0.0") -> int:
     """优先用 preferred, 被占用就顺延找下一个空闲端口(最多找 span 个)。"""
     for port in range(preferred, preferred + span + 1):
-        if _port_available(port):
+        if _port_available(port, host):
             return port
     import socket
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))  # 全被占就让系统随机分一个
+        s.bind((host, 0))  # 全被占就让系统随机分一个
         return s.getsockname()[1]
+
+
+def _lan_ip() -> str:
+    """取本机局域网 IP(给别人电脑/手机连过来用); 取不到就退回 127.0.0.1。"""
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))  # 不会真的发包, 只是让系统选出出口网卡
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 if __name__ == "__main__":
@@ -166,13 +211,20 @@ if __name__ == "__main__":
     #    需要热重载时再设环境变量 RELOAD=1。
     # 2) 5000 被别的进程占用(例如上一次没关干净的实例)时自动顺延到 5001/5002...,
     #    并在控制台把实际地址打印出来, 不需要你手动改端口。
+    # 3) 默认监听 0.0.0.0: 同一局域网里的其他电脑/手机也能访问(演示"别人的电脑推流")。
+    #    只想本机访问就设 HOST=127.0.0.1。
     preferred = int(os.getenv("PORT", "5000"))
-    port = _pick_port(preferred)
+    host = os.getenv("HOST", "0.0.0.0")
+    port = _pick_port(preferred, host=host)
     reload_mode = os.getenv("RELOAD", "0") == "1"
+    lan = _lan_ip()
 
     print("=" * 64, flush=True)
     print("  居家老人监测系统 API 已启动", flush=True)
     print(f"  接口文档(点这个最省事): http://127.0.0.1:{port}/docs", flush=True)
+    if host == "0.0.0.0" and lan != "127.0.0.1":
+        print(f"  局域网(别人电脑推流/看画面用这个): http://{lan}:{port}/docs", flush=True)
+        print(f"  实时画面示例:                       http://{lan}:{port}/api/device/live/CAM-PC-001", flush=True)
     print(f"  健康检查:                http://127.0.0.1:{port}/health", flush=True)
     if port != preferred:
         print(f"  注意: 端口 {preferred} 被占用或不可用, 已自动改用 {port}", flush=True)
@@ -181,5 +233,5 @@ if __name__ == "__main__":
     print("  停止: 在这个窗口按 Ctrl+C, 或点 PyCharm 的停止按钮", flush=True)
     print("=" * 64, flush=True)
 
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=reload_mode)
+    uvicorn.run("main:app", host=host, port=port, reload=reload_mode)
 
