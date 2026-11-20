@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('loginStatus').innerText = "郑医生 (已登录)";
         logoutBtn.classList.remove('d-none'); // 显示退出按钮
         loadElders();
+        startAutoRefresh();
     } else {
         // 未登录
         loginLayer.classList.remove('d-none');
@@ -45,6 +46,7 @@ function doLogin() {
 
             alert("✅ 登录成功！");
             loadElders();
+            startAutoRefresh();
         } else {
             alert("登录失败：" + res.data.msg);
         }
@@ -71,6 +73,20 @@ function switchView(viewId) {
     if (viewId === 'view-elder') loadElders();
     if (viewId === 'view-order') loadOrders();
     if (viewId === 'view-dashboard') loadDashboard();
+}
+
+// 自动刷新: 每 15 秒刷新当前可见页面（工单看板/告警流），不用手动按 F5
+let _autoTimer = null;
+function startAutoRefresh() {
+    if (_autoTimer) return;
+    _autoTimer = setInterval(() => {
+        const visible = (id) => {
+            const el = document.getElementById(id);
+            return el && !el.classList.contains('d-none');
+        };
+        if (visible('view-order')) loadOrders();
+        else if (visible('view-dashboard')) loadDashboard();
+    }, 15000);
 }
 
 // ================== 1. 老人档案 ==================
@@ -186,6 +202,9 @@ function deleteOrder(orderId) {
 // ================== 3. AI 监控面板 ==================
 function loadDashboard() {
     const chartDom = document.getElementById('echart-pie');
+    // 反复刷新时先销毁旧图表实例, 否则 echarts 会警告/内存泄漏
+    const old = echarts.getInstanceByDom(chartDom);
+    if (old) old.dispose();
     const myChart = echarts.init(chartDom);
     const streamBox = document.getElementById('alert-stream');
 
@@ -196,7 +215,8 @@ function loadDashboard() {
     }
     const headers = { 'Authorization': `Bearer ${token}` };
 
-    axios.get(`${API_BASE}/api/alert?limit=100`, { headers })
+    // 分页接口: 社康账号看全部老人, 取最新 50 条
+    axios.get(`${API_BASE}/api/alert?page=1&size=50`, { headers })
         .then(res => {
             let alerts = Array.isArray(res.data.data) ? res.data.data : (res.data.data.items || []);
             renderDashboard(alerts, streamBox, myChart);
@@ -224,8 +244,9 @@ function renderDashboard(alerts, streamBox, myChart) {
             const color = isFall ? 'danger' : (alert.alert_type === 'sos' ? 'warning' : 'info');
             let timeStr = alert.create_time ? alert.create_time.replace('T', ' ').substring(0, 19) : '刚刚';
 
-            let imgBtn = alert.screenshot_path ?
-                `<a href="${API_BASE}/static/${alert.screenshot_path}" target="_blank" class="btn btn-sm btn-outline-dark mt-2">📸 查看AI抓拍</a>` : '';
+            const shotUrl = alert.screenshot_url || (alert.screenshot_path ? `/static/${alert.screenshot_path}` : '');
+            let imgBtn = shotUrl ?
+                `<a href="${shotUrl}" target="_blank" class="btn btn-sm btn-outline-dark mt-2">📸 查看AI抓拍</a>` : '';
 
             streamBox.innerHTML += `
                 <div class="alert alert-${color} py-2 mb-2 shadow-sm">
