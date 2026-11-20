@@ -101,8 +101,11 @@ class DailyAlertStat(BaseModel):
 
 
 class AlertStatsResp(BaseModel):
-    """家属首页卡片用: 按类型、按日期聚合"""
-    elder_id: int
+    """家属首页卡片 / 社康大屏用: 按类型、按日期聚合。
+
+    elder_id 为 None 表示社康视角(统计全部老人)。
+    """
+    elder_id: int | None = None
     days: int = Field(description="统计天数")
     start_date: str = Field(description="统计起始日期 YYYY-MM-DD")
     end_date: str = Field(description="统计结束日期 YYYY-MM-DD")

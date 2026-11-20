@@ -202,10 +202,14 @@ def _to_item(alert: Alert) -> dict:
 
 
 def get_alert_page(
-    db: Session, elder_id: int, page: int = 1, size: int = 10, handled: int | None = None
+    db: Session, elder_id: int | None, page: int = 1, size: int = 10, handled: int | None = None
 ) -> dict:
-    """按 elder_id 分页返回告警(权限隔离); handled=0/1 时只返回未处置/已处置的。"""
-    query = db.query(Alert).filter(Alert.elder_id == elder_id)
+    """分页返回告警; elder_id 为 None 表示社康视角(全部老人), 否则按老人隔离。
+    handled=0/1 时只返回未处置/已处置的。
+    """
+    query = db.query(Alert)
+    if elder_id is not None:
+        query = query.filter(Alert.elder_id == elder_id)
     if handled is not None:
         query = query.filter(Alert.is_handled == handled)
 
@@ -225,15 +229,16 @@ def get_alert_page(
     }
 
 
-def get_alert_detail(db: Session, alert_id: int, elder_id: int) -> dict:
+def get_alert_detail(db: Session, alert_id: int, elder_id: int | None) -> dict:
     """告警详情: 基础信息 + 关联工单状态 + 处置人姓名。
 
-    404: 告警不存在; 403: 告警属于别的老人(防止跨老人查看)。
+    elder_id 为 None 表示社康视角(可看全部); 否则跨老人查看返回 403。
+    404: 告警不存在。
     """
     alert = db.get(Alert, alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail=f"告警 {alert_id} 不存在")
-    if alert.elder_id != elder_id:
+    if elder_id is not None and alert.elder_id != elder_id:
         raise HTTPException(status_code=403, detail="无权查看该告警")
 
     order = db.query(WorkOrder).filter(WorkOrder.alert_id == alert.id).first()
@@ -302,19 +307,20 @@ def get_screenshot_path(db: Session, alert_id: int, elder_id: int):
     return path
 
 
-def get_alert_stats(db: Session, elder_id: int, days: int = 7) -> dict:
-    """近 N 天告警统计: 按类型、按日期聚合, 供家属首页卡片使用。
+def get_alert_stats(db: Session, elder_id: int | None, days: int = 7) -> dict:
+    """近 N 天告警统计: 按类型、按日期聚合。
 
+    elder_id 为 None 表示社康视角(统计全部老人)。
     没有告警的日期也会出现在 by_date 里(数值为 0), 前端画图不用自己补轴。
     """
     end_day = date.today()
     start_day = end_day - timedelta(days=days - 1)
     start_dt = datetime.combine(start_day, time.min)
 
-    rows = db.query(Alert).filter(
-        Alert.elder_id == elder_id,
-        Alert.create_time >= start_dt
-    ).all()
+    query = db.query(Alert).filter(Alert.create_time >= start_dt)
+    if elder_id is not None:
+        query = query.filter(Alert.elder_id == elder_id)
+    rows = query.all()
 
     by_date = {}
     for offset in range(days):

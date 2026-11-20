@@ -33,6 +33,17 @@ def _require_elder_id(current_user) -> int:
     return current_user.elder_id
 
 
+def _scope_elder_id(current_user) -> int | None:
+    """查询类接口的可见范围。
+
+    社康账号(elder_id 为空)是管理视角, 返回 None 表示"看全部老人";
+    老人/家属仍然只能看自己绑定的那位老人, 权限隔离不变。
+    """
+    if current_user.role == "social":
+        return None
+    return _require_elder_id(current_user)
+
+
 @router.post("/sos", response_model=BaseResp[SosResp], summary="老人一键求助(自动建工单)")
 def create_sos(
     body: SosReq | None = None,
@@ -99,11 +110,11 @@ def alert_list(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """按当前账号绑定关系查告警: 老人看自己的, 家属看绑定的那位老人。
+    """按当前账号绑定关系查告警: 老人看自己的, 家属看绑定的那位老人, 社康看全部。
 
     截图字段返回 screenshot_url, 前端直接 <img src> 即可。
     """
-    elder_id = _require_elder_id(current_user)
+    elder_id = _scope_elder_id(current_user)
     data = service.get_alert_page(db, elder_id, page=page, size=size, handled=handled)
     return ok(data)
 
@@ -118,7 +129,7 @@ def alert_stats(
 
     注意: 该路由必须声明在 /{alert_id} 之前, 否则 stats 会被当成 alert_id 解析。
     """
-    elder_id = _require_elder_id(current_user)
+    elder_id = _scope_elder_id(current_user)
     data = service.get_alert_stats(db, elder_id, days=days)
     return ok(data)
 
@@ -133,7 +144,7 @@ def alert_detail(
 
     404: 告警不存在; 403: 该告警属于别的老人。
     """
-    elder_id = _require_elder_id(current_user)
+    elder_id = _scope_elder_id(current_user)
     data = service.get_alert_detail(db, alert_id, elder_id)
     return ok(AlertDetail(**data))
 
