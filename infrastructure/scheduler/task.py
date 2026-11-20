@@ -1,10 +1,11 @@
-"""定时任务: 设备掉线扫描 + 服药提醒扫描, 由 APScheduler 周期拉起。
+"""定时任务: 设备掉线扫描 + 服药提醒扫描 + 媒体文件清理, 由 APScheduler 周期拉起。
 
-Owner: Person A (阶段 2 的两个定时任务)
+Owner: Person A (阶段 2 的两个定时任务 + 阶段 3 的媒体清理)
 
-暴露三个函数:
+暴露四个函数:
     sweep_offline_devices(timeout_seconds=120)  心跳超时 -> status='offline', 返回受影响台数
     scan_medicine_reminders(window_minutes=1)   到点的启用计划 -> 推送提醒, 返回推送条数
+    cleanup_media(stream_days, video_days)      删除过期的跌倒截图/录像, 返回清理统计
     start_scheduler() / shutdown_scheduler()    在 main.py lifespan 里启动/关闭 APScheduler
 
 设计要点:
@@ -15,14 +16,17 @@ Owner: Person A (阶段 2 的两个定时任务)
        取时间范围是"最近 N 分钟", 不去重就会对同一剂药重复推送。
     4. 只提醒"启用(status=1)"的计划, 且当天已经确认过服药(medicine_record)的不再提醒;
        cycle='two_day'(隔天) 的计划按日期奇偶跳过一次。
+    5. 媒体清理只删文件, 保留 alert / work_order 这些业务记录(历史要能查),
+       但会把指向已删文件的 alert.screenshot_path 置空, 前端就不会显示裂图。
 """
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 import config.settings as settings
 from infrastructure.push.notify import notify
-from models import Device, MedicinePlan, MedicineRecord, User
+from models import Alert, Device, MedicinePlan, MedicineRecord, User
 
 # ---------------------------------------------------------------- 掉线扫描
 
@@ -185,6 +189,133 @@ def reset_reminder_cache() -> None:
     _fired_reminders.clear()
 
 
+# ---------------------------------------------------------------- 媒体清理
+
+# 与 domains/device/service.py 的 STREAM_DIR / VIDEO_DIR 同一路径。
+# 这里不 import domains(架构约束: infrastructure 不能被 domains 反向依赖), 所以自己拼。
+STATIC_DIR = Path("static")
+MEDIA_DIRS = {"stream": STATIC_DIR / "stream", "videos": STATIC_DIR / "videos"}
+MEDIA_SUFFIXES = {".jpg", ".jpeg", ".png", ".mp4", ".avi", ".mov", ".mkv"}
+
+
+def _purge_dir(root: Path, cutoff: datetime, protected: set[Path] | None = None) -> tuple[int, int]:
+    """删除 root 下修改时间早于 cutoff 的媒体文件, 返回 (文件数, 释放字节数)。
+
+    protected: 绝对路径集合, 命中的文件一律不删(例如还没处置的告警截图)。
+    """
+    if not root.is_dir():
+        return 0, 0
+
+    count = 0
+    freed = 0
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in MEDIA_SUFFIXES:
+            continue
+        if protected and path.resolve() in protected:
+            continue
+        try:
+            stat = path.stat()
+            if datetime.fromtimestamp(stat.st_mtime) >= cutoff:
+                continue
+            path.unlink()
+            count += 1
+            freed += stat.st_size
+        except OSError as exc:
+            print(f"[清理] 删除失败 {path}: {exc}", flush=True)
+
+    # 顺手清掉空目录(static/stream/CAM-xxx 这种), 免得越积越多
+    for sub in sorted(root.rglob("*"), reverse=True):
+        if sub != root and sub.is_dir():
+            try:
+                sub.rmdir()
+            except OSError:
+                pass
+    return count, freed
+
+
+def cleanup_media(
+    now: datetime | None = None,
+    stream_days: int | None = None,
+    video_days: int | None = None,
+    db: Session | None = None,
+    keep_unhandled: bool = True,
+) -> dict:
+    """删除过期的跌倒截图和录像文件, 返回清理统计。
+
+    为什么需要: 一个摄像头每个时段都传录像 + 偶发跌倒截图, 不清理磁盘一周就满。
+    策略(可用环境变量调整):
+        static/stream/  跌倒截图   已处置的保留 7 天(MEDIA_STREAM_RETENTION_DAYS)
+        static/videos/  录像片段   保留 3 天(MEDIA_VIDEO_RETENTION_DAYS)
+        <=0 表示这一类不清理
+    关键规则(keep_unhandled):
+        **还没处置的告警, 它的截图一律不删**。因为这张图是待办证据,
+        社康还没看/还没处理, 删了家属和社康就再也看不到事故现场了。
+        只有"已处置"的告警截图才会按保留天数清理。
+    只删文件, 保留 alert / work_order 业务记录(历史要能查);
+    文件确实被删的告警, screenshot_path 置空, 前端据此显示"历史图片已清理"
+    而不是一个裂图。
+
+    实时画面不在这里: 它只存在内存里, 15 秒没人推就自然失效(domains/device/live.py)。
+    """
+    from db import session as dbs
+
+    own_session = db is None
+    if own_session:
+        db = dbs.SessionLocal()
+    now = now or datetime.now()
+    stream_days = settings.MEDIA_STREAM_RETENTION_DAYS if stream_days is None else stream_days
+    video_days = settings.MEDIA_VIDEO_RETENTION_DAYS if video_days is None else video_days
+
+    result = {"stream_deleted": 0, "video_deleted": 0, "bytes_freed": 0,
+              "alerts_cleared": 0, "protected": 0}
+    try:
+        # 未处置告警的截图标为"受保护", 即使超过保留期也不删
+        protected: set[Path] = set()
+        rows = (
+            db.query(Alert.screenshot_path, Alert.is_handled)
+            .filter(Alert.screenshot_path != None)  # noqa: E711
+            .all()
+        )
+        if keep_unhandled:
+            protected = {
+                (STATIC_DIR / path).resolve() for path, handled in rows if not handled
+            }
+        result["protected"] = len(protected)
+
+        if stream_days > 0:
+            n, freed = _purge_dir(MEDIA_DIRS["stream"], now - timedelta(days=stream_days), protected)
+            result["stream_deleted"] += n
+            result["bytes_freed"] += freed
+        if video_days > 0:
+            n, freed = _purge_dir(MEDIA_DIRS["videos"], now - timedelta(days=video_days), protected)
+            result["video_deleted"] += n
+            result["bytes_freed"] += freed
+
+        # 截图文件确实不在的告警: 把路径置空(告警本身保留)
+        for alert in db.query(Alert).filter(Alert.screenshot_path != None).all():  # noqa: E711
+            if not (STATIC_DIR / alert.screenshot_path).exists():
+                alert.screenshot_path = None
+                result["alerts_cleared"] += 1
+        db.commit()
+
+        if result["stream_deleted"] or result["video_deleted"] or result["alerts_cleared"]:
+            print(
+                f"[清理] 截图 {result['stream_deleted']} 张 / 录像 {result['video_deleted']} 段, "
+                f"释放 {result['bytes_freed'] / 1024 / 1024:.1f} MB, "
+                f"清空 {result['alerts_cleared']} 条告警的截图路径, "
+                f"保护未处置告警截图 {result['protected']} 张",
+                flush=True,
+            )
+        return result
+    except Exception as exc:  # noqa: BLE001 定时任务不能把调度器带崩
+        db.rollback()
+        print(f"[清理] 媒体清理失败: {exc}", flush=True)
+        return result
+    finally:
+        if own_session:
+            db.close()
+
+
 # ---------------------------------------------------------------- 调度器
 
 _scheduler = None
@@ -232,11 +363,27 @@ def start_scheduler() -> bool:
         max_instances=1,
         coalesce=True,
     )
+    if settings.MEDIA_CLEANUP_INTERVAL_SECONDS > 0:
+        scheduler.add_job(
+            cleanup_media,
+            "interval",
+            seconds=settings.MEDIA_CLEANUP_INTERVAL_SECONDS,
+            id="cleanup_media",
+            max_instances=1,
+            coalesce=True,
+        )
     scheduler.start()
     _scheduler = scheduler
+    cleanup_desc = (
+        f" / 媒体清理 {settings.MEDIA_CLEANUP_INTERVAL_SECONDS}s"
+        if settings.MEDIA_CLEANUP_INTERVAL_SECONDS > 0
+        else " / 媒体清理 已关闭"
+    )
     print(
-        "[定时任务] 调度器已启动: 掉线扫描 30s / 服药提醒 60s "
-        f"(掉线阈值 {settings.DEVICE_OFFLINE_TIMEOUT}s)",
+        f"[定时任务] 调度器已启动: 掉线扫描 30s / 服药提醒 60s{cleanup_desc} "
+        f"(掉线阈值 {settings.DEVICE_OFFLINE_TIMEOUT}s, "
+        f"截图保留 {settings.MEDIA_STREAM_RETENTION_DAYS} 天, "
+        f"录像保留 {settings.MEDIA_VIDEO_RETENTION_DAYS} 天)",
         flush=True,
     )
     return True

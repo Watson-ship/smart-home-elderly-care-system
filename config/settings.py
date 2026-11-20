@@ -63,3 +63,17 @@ DEVICE_OFFLINE_TIMEOUT = int(
 
 # 定时任务开关: 测试/单次脚本里可以设 SCHEDULER_ENABLED=0 跳过 APScheduler
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", _local("SCHEDULER_ENABLED", "1")) != "0"
+
+# ---- 媒体文件保留(定时清理) ----
+# 跌倒截图和录像会一直累积(一个摄像头一天几段录像 + 偶发截图), 超过保留天数就删文件。
+# 实时画面不走磁盘(见 domains/device/live.py), 所以这里只需要管 stream/ 和 videos/。
+MEDIA_STREAM_RETENTION_DAYS = int(
+    os.getenv("MEDIA_STREAM_RETENTION_DAYS", _local("MEDIA_STREAM_RETENTION_DAYS", "7"))
+)
+MEDIA_VIDEO_RETENTION_DAYS = int(
+    os.getenv("MEDIA_VIDEO_RETENTION_DAYS", _local("MEDIA_VIDEO_RETENTION_DAYS", "3"))
+)
+# 清理任务多久跑一次(秒), 默认 1 小时; 设成 <=0 表示不挂定时清理
+MEDIA_CLEANUP_INTERVAL_SECONDS = int(
+    os.getenv("MEDIA_CLEANUP_INTERVAL_SECONDS", _local("MEDIA_CLEANUP_INTERVAL_SECONDS", "3600"))
+)
