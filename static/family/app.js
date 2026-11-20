@@ -121,38 +121,66 @@
         });
 
         if (name !== "video") stopVideo();
+        if (name === "video") loadVideoDevices();
         if (name === "alert") loadAlerts(1);
         if (name === "medicine") { loadPlans(1); loadStats(); searchRecords(1); }
-        if (name === "bind") loadElders();
+        if (name === "bind") { loadElders(); loadDevices(); }
     }
 
     /* ---------------- 实时视频 ---------------- */
 
     function refreshFrame() {
         const sn = $("#videoSn").value.trim();
-        if (!sn) { toast("请先填写设备序列号", true); stopVideo(); return; }
+        if (!sn) { toast("请先选择摄像头（没有的话先去绑定管理）", true); stopVideo(); return; }
         const img = $("#videoImg");
-        img.src = `/api/device/stream/${encodeURIComponent(sn)}?t=${Date.now()}`;
+        // 真正的实时画面: MJPEG 长连接(推流端每 2 秒一帧), img 会自己持续刷新
+        img.src = `/api/device/live/${encodeURIComponent(sn)}?t=${Date.now()}`;
     }
 
     function startVideo() {
         const sn = $("#videoSn").value.trim();
-        if (!sn) { toast("请先填写设备序列号", true); return; }
+        if (!sn) { toast("请先选择摄像头（没有的话先去绑定管理）", true); return; }
         localStorage.setItem("family_video_sn", sn);
         stopVideo();
         $("#videoStatus").innerHTML = '<span class="status-dot"></span>连接中...';
         refreshFrame();
-        state.videoTimer = setInterval(refreshFrame, 5000);
+        // MJPEG 不需要定时器: 帧由服务端持续推送, 断开靠 stopVideo 清空 src
+        state.videoTimer = null;
     }
 
     function stopVideo() {
         if (state.videoTimer) { clearInterval(state.videoTimer); state.videoTimer = null; }
+        clearTimeout(state.retryTimer);
+        const img = $("#videoImg");
+        if (img) img.src = "";   // 断开 MJPEG 连接
+    }
+
+    async function loadVideoDevices() {
+        const sel = $("#videoSn");
+        if (!sel) return;
+        try {
+            const data = await api("/api/device/list?bound=true");
+            const items = Array.isArray(data) ? data : [];
+            const saved = localStorage.getItem("family_video_sn") || sel.value;
+
+            sel.innerHTML = items.length
+                ? items.map((d) => `<option value="${d.device_sn}">${d.device_name}</option>`).join("")
+                : '<option value="">还没有绑定摄像头</option>';
+
+            if (saved && items.some((d) => d.device_sn === saved)) sel.value = saved;
+            else if (items.length) sel.value = items[0].device_sn;
+        } catch (e) {
+            sel.innerHTML = '<option value="">加载失败，请重新登录</option>';
+        }
     }
 
     function initVideo() {
-        const saved = localStorage.getItem("family_video_sn");
-        if (saved) $("#videoSn").value = saved;
+        loadVideoDevices();
 
+        $("#videoSn").addEventListener("change", () => {
+            stopVideo();
+            $("#videoStatus").innerHTML = '<span class="status-dot"></span>已切换，点「开始观看」';
+        });
         $("#videoStart").addEventListener("click", startVideo);
         $("#videoStop").addEventListener("click", () => {
             stopVideo();
@@ -168,8 +196,13 @@
         img.addEventListener("error", () => {
             img.classList.add("hidden");
             $("#videoPlaceholder").classList.remove("hidden");
-            $("#videoPlaceholder").textContent = "暂无画面（该设备未上传截图或不在线）";
+            $("#videoPlaceholder").textContent = "暂无画面（推流端未启动或设备不在线，5 秒后自动重试）";
             $("#videoStatus").innerHTML = '<span class="status-dot offline"></span>离线 / 暂无画面';
+            // 断流后 5 秒自动重连(MJPEG 没有定时器, 靠这里重试)
+            clearTimeout(state.retryTimer);
+            state.retryTimer = setTimeout(() => {
+                if (!$("#tab-video").classList.contains("hidden")) refreshFrame();
+            }, 5000);
         });
     }
 
@@ -491,19 +524,92 @@
         }
     }
 
-    async function doBind() {
+    async function doBind(sn, defaultName) {
         const elderId = Number($("#bindElder").value);
-        const sn = $("#bindSn").value.trim();
-        const out = $("#bindResult");
-        if (!elderId) { out.textContent = "请选择老人"; return; }
-        if (!sn) { out.textContent = "请填写摄像头序列号"; return; }
+        if (!elderId) { toast("请先选择老人", true); return; }
+
+        const input = prompt("给这台摄像头起个名字（例如：客厅 / 卧室）", defaultName || "客厅");
+        if (input === null) return;
+        const name = input.trim();
+        if (!name) { toast("名字不能为空", true); return; }
 
         try {
-            const data = await api("/api/device/bind", { method: "POST", body: { device_sn: sn, elder_id: elderId } });
-            out.textContent = `绑定成功：${data.device_name}（${data.device_sn}）→ 老人 ID ${data.elder_id}`;
-            toast("绑定成功");
+            await api("/api/device/bind", {
+                method: "POST",
+                body: { device_sn: sn, elder_id: elderId, device_name: name },
+            });
+            toast(`已绑定：${name}`);
+            loadDevices();
         } catch (e) {
-            out.textContent = "绑定失败：" + e.message;
+            toast(e.message, true);
+        }
+    }
+
+    async function doRename(sn, current) {
+        const input = prompt("新的名字（例如：卧室）", current || "");
+        if (input === null) return;
+        const name = input.trim();
+        if (!name) return;
+        try {
+            await api("/api/device/rename", { method: "POST", body: { device_sn: sn, device_name: name } });
+            toast("已改名");
+            loadDevices();
+        } catch (e) {
+            toast(e.message, true);
+        }
+    }
+
+    async function loadDevices() {
+        const boundBody = $("#deviceList");
+        const availBody = $("#availableList");
+        if (!boundBody || !availBody) return;
+
+        availBody.innerHTML = '<tr><td colspan="3" class="hint">加载中...</td></tr>';
+        boundBody.innerHTML = '<tr><td colspan="4" class="hint">加载中...</td></tr>';
+
+        try {
+            const [bound, available] = await Promise.all([
+                api("/api/device/list?bound=true"),
+                api("/api/device/list?bound=false"),
+            ]);
+            const boundItems = Array.isArray(bound) ? bound : [];
+            const availItems = Array.isArray(available) ? available : [];
+
+            availBody.innerHTML = availItems.length
+                ? availItems.map((d) => `
+                    <tr>
+                        <td>${d.device_name}</td>
+                        <td>${d.status === "online" ? "🟢 在线" : "⚪ 离线"}</td>
+                        <td><button class="btn primary" data-bind="${d.device_sn}" data-name="${d.device_name}">绑定</button></td>
+                    </tr>`).join("")
+                : '<tr><td colspan="3" class="hint">没有待绑定的设备，请先在摄像头端开始推流</td></tr>';
+
+            boundBody.innerHTML = boundItems.length
+                ? boundItems.map((d) => `
+                    <tr>
+                        <td>${d.device_name}</td>
+                        <td>${d.elder_name || "-"}</td>
+                        <td>${d.status === "online" ? "🟢" : "⚪"}</td>
+                        <td>
+                            <button class="btn" data-rename="${d.device_sn}" data-current="${d.device_name}">改名</button>
+                            <button class="btn" data-unbind="${d.device_sn}">解绑</button>
+                        </td>
+                    </tr>`).join("")
+                : '<tr><td colspan="4" class="hint">还没有绑定任何摄像头</td></tr>';
+        } catch (e) {
+            availBody.innerHTML = `<tr><td colspan="3" class="hint">加载失败：${e.message}</td></tr>`;
+            boundBody.innerHTML = `<tr><td colspan="4" class="hint">加载失败：${e.message}</td></tr>`;
+        }
+        loadVideoDevices();   // 绑定/解绑后同步刷新视频页下拉框
+    }
+
+    async function doUnbind(sn) {
+        if (!confirm("确定要解绑这台摄像头吗？\n解绑后家属看不到它的画面和告警。")) return;
+        try {
+            await api("/api/device/unbind", { method: "POST", body: { device_sn: sn } });
+            toast("已解绑");
+            loadDevices();
+        } catch (e) {
             toast(e.message, true);
         }
     }
@@ -522,7 +628,16 @@
         initVideo();
         initAlerts();
         initMedicine();
-        $("#bindBtn").addEventListener("click", doBind);
+        $("#availableList").addEventListener("click", (ev) => {
+            const btn = ev.target.closest("[data-bind]");
+            if (btn) doBind(btn.dataset.bind, btn.dataset.name);
+        });
+        $("#deviceList").addEventListener("click", (ev) => {
+            const renameBtn = ev.target.closest("[data-rename]");
+            if (renameBtn) { doRename(renameBtn.dataset.rename, renameBtn.dataset.current); return; }
+            const unbindBtn = ev.target.closest("[data-unbind]");
+            if (unbindBtn) doUnbind(unbindBtn.dataset.unbind);
+        });
 
         if (state.token) {
             enterApp();

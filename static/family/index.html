@@ -49,7 +49,9 @@
                 <div class="card">
                     <h2>实时视频</h2>
                     <div class="row" style="margin-bottom:12px">
-                        <input id="videoSn" placeholder="设备序列号，如 CAM-SN-20240101-001" style="flex:1;min-width:260px">
+                        <select id="videoSn" style="flex:1;min-width:260px">
+                            <option value="">先到「绑定管理」给摄像头起个名字</option>
+                        </select>
                         <button class="btn primary" id="videoStart">开始观看</button>
                         <button class="btn" id="videoStop">停止刷新</button>
                         <span id="videoStatus" class="hint"><span class="status-dot"></span>未开始</span>
@@ -57,13 +59,12 @@
                     <div class="video-box">
                         <img id="videoImg" class="hidden" alt="摄像头画面">
                         <div id="videoPlaceholder" class="placeholder">
-                            输入设备序列号后点击「开始观看」<br>
-                            每 5 秒自动刷新一帧（跌倒也截图）
+                            在上面选择「客厅 / 卧室」等摄像头，再点「开始观看」<br>
+                            推流端每 2 秒上传一帧，这里会持续刷新
                         </div>
                     </div>
                     <p class="hint" style="margin-top:10px">
-                        说明：当前后端没有「设备列表 / 在线状态」接口，序列号需手动填写。
-                        有画面即表示该设备在推流；无画面说明该设备暂未上传截图。
+                        下拉里只显示已经绑定好的摄像头；没看到的话先去「绑定管理」绑定。
                     </p>
                 </div>
             </section>
@@ -178,21 +179,36 @@
                 <div class="card">
                     <h2>绑定管理</h2>
                     <p class="hint" style="margin-bottom:14px">
-                        选择老人 + 填写摄像头序列号，提交后该设备就归属这位老人。
+                        摄像头启动后会自动出现在下面的「待绑定设备」里。
+                        选好老人、点「绑定」并起个名字（客厅 / 卧室）即可，不用记任何编号。
                     </p>
                     <div class="row">
-                        <label class="field" style="flex:1;min-width:240px">老人
+                        <label class="field" style="flex:1;min-width:240px">绑定到老人
                             <select id="bindElder"></select>
                         </label>
-                        <label class="field" style="flex:1;min-width:240px">摄像头序列号
-                            <input id="bindSn" placeholder="如 CAM-SN-20240101-001">
-                        </label>
                     </div>
-                    <button class="btn primary" id="bindBtn">提交绑定</button>
-                    <div class="hint" id="bindResult" style="margin-top:12px"></div>
-                    <p class="hint" style="margin-top:18px">
-                        说明：后端暂无「设备列表」接口，所以序列号需要手动输入；
-                        绑定接口成功后返回设备名与所属老人。
+
+                    <h3 style="font-size:16px;margin:24px 0 10px">待绑定设备</h3>
+                    <table>
+                        <thead>
+                            <tr><th>设备</th><th style="width:110px">在线状态</th><th style="width:120px">操作</th></tr>
+                        </thead>
+                        <tbody id="availableList">
+                            <tr><td colspan="3" class="hint">加载中...</td></tr>
+                        </tbody>
+                    </table>
+
+                    <h3 style="font-size:16px;margin:26px 0 10px">已绑定设备</h3>
+                    <table>
+                        <thead>
+                            <tr><th>昵称</th><th>所属老人</th><th style="width:90px">在线</th><th style="width:170px">操作</th></tr>
+                        </thead>
+                        <tbody id="deviceList">
+                            <tr><td colspan="4" class="hint">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="hint" style="margin-top:14px">
+                        设备编号只用于系统内部识别，您只需要给它起个好记的名字。
                     </p>
                 </div>
             </section>
