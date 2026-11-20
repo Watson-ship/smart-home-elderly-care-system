@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>摄像头推流 · 设备端</title>
+<style>
+  :root { --bg:#0f1420; --card:#181f2e; --line:#2a3346; --txt:#e6ecf5; --sub:#8b9bb4; --pri:#3b82f6; --ok:#22c55e; --bad:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--txt);
+         font:14px/1.6 "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:12px; margin-bottom:20px; }
+  .wrap { display:grid; grid-template-columns:380px 1fr; gap:18px; max-width:1180px; }
+  @media (max-width:860px){ .wrap { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  label { display:block; font-size:12px; color:var(--sub); margin:12px 0 6px; }
+  label:first-child { margin-top:0; }
+  input, select { width:100%; padding:9px 10px; background:#101725; color:var(--txt);
+                  border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  button { flex:1; min-width:110px; padding:10px 12px; border:0; border-radius:8px;
+           background:var(--pri); color:#fff; font-size:13px; cursor:pointer; }
+  button.ghost { background:#22304a; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  video { width:100%; border-radius:12px; background:#000; border:1px solid var(--line);
+          aspect-ratio:4/3; object-fit:contain; }
+  .hint { margin-top:10px; font-size:12px; color:var(--sub); }
+  #log { margin:14px 0 0; padding:12px; height:220px; overflow:auto; background:#0b111c;
+         border:1px solid var(--line); border-radius:8px; font:12px/1.7 Consolas, monospace;
+         color:#9fb3cc; white-space:pre-wrap; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .tag { display:inline-block; padding:2px 8px; border-radius:99px; background:#22304a;
+         color:#9fb3cc; font-size:11px; margin-left:8px; }
+</style>
+</head>
+<body>
+  <h1>摄像头推流 · 设备端 <span class="tag" id="state">未开始</span></h1>
+  <div class="sub">
+    在你自己的电脑上打开（浏览器只能访问本机摄像头）。开始后会每 2 秒推一帧、每 10 秒发一次心跳。
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <label>选择摄像头</label>
+      <select id="camSel"><option value="">先点下面的「授权并列出摄像头」</option></select>
+
+      <div class="row">
+        <button id="btnPerm" class="ghost">1. 授权并列出摄像头</button>
+      </div>
+      <div class="row">
+        <button id="btnStart">2. 开始推流</button>
+        <button id="btnStop" class="ghost" disabled>停止</button>
+      </div>
+      <div class="hint">
+        设备编号由系统自动分配，您不用填。<br>
+        开始推流后，请打开<b>家属端 → 绑定管理</b>，给这台摄像头起个名字（客厅 / 卧室）并绑定给老人。<br>
+        同一台电脑上的不同摄像头会被识别成不同的设备。
+      </div>
+    </div>
+
+    <div>
+      <video id="preview" muted playsinline autoplay></video>
+      <pre id="log">等待操作…</pre>
+    </div>
+  </div>
+
+  <canvas id="canvas" hidden></canvas>
+
+<script>
+const $ = id => document.getElementById(id);
+const FRAME_INTERVAL = 2000;   // 每 2 秒推一帧
+const BEAT_INTERVAL = 10000;   // 每 10 秒心跳
+
+let stream = null;
+let frameTimer = null, beatTimer = null;
+let sending = false;
+let activeSn = "";             // 推流期间固定用这一个 SN, 改输入框不会串到别的设备
+let stats = { ok: 0, fail: 0 };
+
+function log(msg, cls = "") {
+  const t = new Date().toTimeString().slice(0, 8);
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = `[${t}] ${msg}`;
+  $("log").appendChild(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function setState(text) { $("state").textContent = text; }
+
+/* ---------------- 1. 授权 + 列出摄像头 ---------------- */
+async function listCameras() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    log("这个浏览器不支持摄像头，或页面不是通过 localhost 打开的", "bad");
+    log("提示：地址必须是 http://127.0.0.1:5000/... ，不能是局域网 IP", "bad");
+    return;
+  }
+  try {
+    // 必须先拿到权限，enumerateDevices 才会返回设备名字
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === "videoinput");
+    if (!cams.length) { log("没有检测到摄像头", "bad"); return; }
+
+    $("camSel").innerHTML = cams
+      .map((c, i) => `<option value="${c.deviceId}">${c.label || "摄像头 " + (i + 1)}</option>`)
+      .join("");
+    $("preview").srcObject = stream;
+    log(`找到 ${cams.length} 个摄像头：` + cams.map((c, i) => (c.label || "摄像头" + (i + 1))).join(" / "), "ok");
+  } catch (e) {
+    log("打开摄像头被拒绝或失败：" + e.message, "bad");
+  }
+}
+
+/* ---------------- 切换摄像头 ---------------- */
+async function switchCamera() {
+  const id = $("camSel").value;
+  if (!id) return;
+  if (frameTimer) { log("请先停止推流再切换摄像头", "bad"); return; }
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: id } } });
+    $("preview").srcObject = stream;
+    log("已切换到：" + ($("camSel").selectedOptions[0]?.textContent || id));
+  } catch (e) {
+    log("切换摄像头失败：" + e.message, "bad");
+  }
+}
+
+/* ---------------- 注册 ---------------- */
+/* 硬件指纹 = 浏览器指纹 + 摄像头 deviceId
+   → 同一台电脑的 0 号、1 号摄像头会被识别成两台不同的设备 */
+function hardwareId(cameraId) {
+  let browserId = localStorage.getItem("device_browser_id");
+  if (!browserId) {
+    browserId = crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random();
+    localStorage.setItem("device_browser_id", browserId);
+  }
+  return `web-${browserId}-${cameraId}`;
+}
+
+async function registerDevice() {
+  const track = stream && stream.getVideoTracks()[0];
+  const settings = track ? track.getSettings() : {};
+  const cameraId = settings.deviceId || "default";
+  const label = track && track.label ? track.label : "网页摄像头";
+
+  const r = await fetch("/api/device/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      device_name: label,
+      hardware_id: hardwareId(cameraId),
+    }),
+  });
+  const body = await r.json();
+  const sn = body.data && body.data.device_sn;
+  if (!sn) {
+    log("注册失败：" + (body.msg || ("HTTP " + r.status)), "bad");
+    return null;
+  }
+  log(body.data.generated ? "设备已登记（编号由系统分配）" : "这台摄像头之前已登记，继续使用原设备", "ok");
+  log("接下来请到家属端「绑定管理」给它起名字并绑定老人", "ok");
+  return sn;
+}
+
+/* ---------------- 抓帧 + 上传 ---------------- */
+function grabFrame() {
+  const v = $("preview"), c = $("canvas");
+  if (!v.videoWidth) return Promise.resolve(null);
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(res, "image/jpeg", 0.8));
+}
+
+async function pushFrame() {
+  if (sending) return;              // 上一帧还没传完就跳过，不堆积
+  sending = true;
+  try {
+    const blob = await grabFrame();
+    if (!blob) { sending = false; return; }
+    const fd = new FormData();
+    fd.append("device_sn", activeSn);
+    fd.append("file", blob, "frame.jpg");
+    const r = await fetch("/api/device/frame", { method: "POST", body: fd });
+    if (r.ok) {
+      stats.ok++;
+      const d = (await r.json()).data;
+      if (stats.ok % 5 === 1) log(`推帧成功 ${d.size}B · 正在观看 ${d.viewers} 人 · 累计 ${stats.ok} 帧`, "ok");
+    } else {
+      stats.fail++;
+      log(`推帧失败 HTTP ${r.status}（设备未注册？重新点开始）`, "bad");
+    }
+  } catch (e) {
+    stats.fail++;
+    log("推帧异常：" + e.message, "bad");
+  } finally {
+    sending = false;
+  }
+}
+
+async function heartbeat() {
+  try {
+    const r = await fetch("/api/device/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_sn: activeSn }),
+    });
+    if (r.ok) {
+      const d = (await r.json()).data;
+      log(`心跳 OK · ${d.status} · ${d.last_online_time}`, "ok");
+    } else {
+      log("心跳失败 HTTP " + r.status, "bad");
+    }
+  } catch (e) {
+    log("心跳异常：" + e.message, "bad");
+  }
+}
+
+/* ---------------- 启停 ---------------- */
+async function start() {
+  if (frameTimer) return;
+  if (!stream) { log("先点「1. 授权并列出摄像头」", "bad"); return; }
+  const sn = await registerDevice();
+  if (!sn) return;
+  activeSn = sn;
+
+  stats = { ok: 0, fail: 0 };
+  heartbeat();
+  await pushFrame();
+  frameTimer = setInterval(pushFrame, FRAME_INTERVAL);
+  beatTimer = setInterval(heartbeat, BEAT_INTERVAL);
+
+  $("btnStart").disabled = true;
+  $("btnStop").disabled = false;
+  setState("推流中");
+  log("开始推流，家属端现在可以看到实时画面了", "ok");
+}
+
+function stop() {
+  clearInterval(frameTimer); clearInterval(beatTimer);
+  frameTimer = beatTimer = null;
+  activeSn = "";
+  $("btnStart").disabled = false;
+  $("btnStop").disabled = true;
+  setState("已停止");
+  log(`已停止。本次推帧成功 ${stats.ok} / 失败 ${stats.fail}`);
+}
+
+$("btnPerm").onclick = listCameras;
+$("btnStart").onclick = start;
+$("btnStop").onclick = stop;
+$("camSel").onchange = switchCamera;
+window.addEventListener("beforeunload", stop);
+</script>
+</body>
+</html>

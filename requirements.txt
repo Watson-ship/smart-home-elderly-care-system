@@ -14,6 +14,10 @@ bcrypt>=4.0,<5
 # 设备掉线扫描(30s) + 服药提醒扫描(60s)
 apscheduler>=3.10,<4
 
+# ---------------- 摄像端脚本 ----------------
+# scripts/camera_client.py 推实时帧、tools/camera_client.py 上传录像都走 HTTP 客户端
+httpx>=0.27
+
 # ---------------- 跌倒检测 (fallwatch) ----------------
 # YOLOv8 推理；会自带 torch / torchvision / numpy / opencv-python
 ultralytics>=8.0.196
